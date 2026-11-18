@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
+from ._model_names_data import MODEL_NAMES
 from .capabilities import GUARD_MODE_EVIDENCE, PROFILES, Capability
 from .model_settings import Setting, SettingKind, Value, bundled_codes, settings_of
 from .station_config_support import (
@@ -159,6 +160,36 @@ def _station_config_section() -> list[str]:
     return out
 
 
+def _condition(pos: int, text: str) -> str:
+    if len(text) == 1:
+        return f"character {pos} is `{text}`"
+    return f"characters {pos}-{pos + len(text) - 1} are `{text}`"
+
+
+def _unit_names_section() -> list[str]:
+    """The serial rules that give single units another name than their model's."""
+    out = [
+        "",
+        "Model names come in three steps: the product's own name table where it names the"
+        " prefix, as the eufy app shows it; else, as the library's choice, the newest name"
+        " table that names the prefix; else the name derived from the app's model constant."
+        " A product whose thing description declares no `device_model` is named the same"
+        " way, though the app shows no such name for it. Some units are named by their"
+        " serial (`product_name`): the first rule of the unit's product that matches wins"
+        " (serial characters count from 0).",
+        "",
+    ]
+    out += _table(
+        ("product", "serial", "name"),
+        (
+            (code, " and ".join(_condition(pos, text) for pos, text in conditions), name)
+            for code, (_base, rules, _source) in sorted(MODEL_NAMES.items())
+            for conditions, name in rules
+        ),
+    )
+    return out
+
+
 def render_support_matrix() -> str:
     """The whole support matrix, deterministically ordered."""
     out = [
@@ -186,6 +217,7 @@ def render_support_matrix() -> str:
             for m in sorted(MODELS.values(), key=lambda m: m.model)
         ),
     )
+    out += _unit_names_section()
     out.append("")
     out += [
         "Each table below is a model's own profile. For every catalogued model, with or"

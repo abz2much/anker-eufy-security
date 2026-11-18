@@ -10,7 +10,8 @@ from typing import Any, Final, Literal
 
 from .._logging import redact, redact_serial
 from ..devices.command_types import APK_COMMAND_TYPES
-from ..devices.types import DeviceModel, model_for_serial, serial_prefix
+from ..devices.model_settings import product_code_of
+from ..devices.types import DeviceModel, model_for_serial, product_name, serial_prefix
 from ..exceptions import CipherUnusableError, CloudApiError, EmptyResponseError, ProtocolError
 from .const import OTA_NO_UPGRADE_CODE, OTA_ROM_PATH
 
@@ -280,10 +281,13 @@ class CloudDevice:
 
     @property
     def model_name(self) -> str | None:
-        """The catalogued model's display name (``"eufyCam 3 (S330)"``); HA's
-        ``DeviceInfo`` ``model``. ``None`` for a model the catalog does not know."""
-        model = self.model
-        return None if model is None else model.name
+        """This unit's product name (``"eufyCam 3"``), by its product code and serial
+        (:func:`~..devices.types.product_name`): the product's own name table, as the eufy
+        app shows it; else, as the library's choice, the newest table naming it; else the
+        name derived from the app's model constant. HA's ``DeviceInfo`` ``model``.
+        ``None`` for a model none of these name."""
+        code = product_code_of(self.raw.get("device_new_pn"), self.device_sn)
+        return product_name(self.device_sn, code)
 
     @property
     def is_station(self) -> bool:

@@ -192,15 +192,14 @@ def test_status_card() -> None:
     text = render.render_status(
         _state(), name="Home Base", host=SYNTHETIC.station_ip, show_serials=False
     )
-    assert text.splitlines()[0] == 'HomeBase 3 (S380) "Home Base"  T8030***2345'
+    assert text.splitlines()[0] == 'HomeBase 3 "Home Base"  T8030***2345'
     assert "  Firmware:    3.8.7.4" in text
     assert "  Guard mode:  Home (1)" in text
     assert f"  Address:     {SYNTHETIC.station_ip}" in text
     assert "eMMC" in text
     assert "42%" in text
     assert (
-        '  • ch 0  "Front"  T8160***7890  eufyCam 3 (S330)  battery 87%  RSSI -52 dBm  fw 3.4.3.0'
-        in text
+        '  • ch 0  "Front"  T8160***7890  eufyCam 3  battery 87%  RSSI -52 dBm  fw 3.4.3.0' in text
     )
     assert SYNTHETIC.station_sn not in text
 
@@ -286,6 +285,18 @@ def test_raw_params_use_catalog_names() -> None:
     assert "GET_BATTERY" in text
 
 
+@pytest.mark.parametrize(
+    ("serial", "label"),
+    [
+        ("T814XZ5ZZZZZZZZZ", "eufyCam C36"),
+        ("T8030ZZZZZZZZZZZ", "HomeBase 3"),
+        ("T9999P2000000001", "model T9999 (not in catalog)"),
+    ],
+)
+def test_model_label_is_the_apps_name_for_the_unit(serial: str, label: str) -> None:
+    assert render.model_label(serial) == label
+
+
 def test_status_json_is_serialisable_and_unredacted() -> None:
     data = render.status_json(_state(), name="Home Base")
     text = json.dumps(data)
@@ -305,10 +316,12 @@ def test_devices_listing() -> None:
             channel=0,
         ),
         CloudDevice(device_sn="T9999P2000000001", device_type=1, name="Mystery"),
+        CloudDevice(device_sn="T814XZ5ZZZZZZZZZ", device_type=10037, name="Garden"),
     ]
     text = render.render_devices(devices, show_serials=False)
     assert "HomeBase 3" in text
     assert "eufyCam 3" in text
+    assert "eufyCam C36" in text  # the app's name for this unit, by its serial
     assert "T9999***0001" in text
     assert SYNTHETIC.station_sn not in text
     assert text.splitlines()[0].split()[-1] == "REGION"
@@ -329,6 +342,14 @@ def test_invites_name_what_each_shares_and_whether_it_needs_a_code() -> None:
             encrypted_data="sealed",
         ),
         CloudInvite(kind="device", region="us", invite_id=4, product_code="T9999"),
+        CloudInvite(kind="device", region="eu", invite_id=5, device_sn="T817LZZZZZZZZZZZ"),
+        CloudInvite(
+            kind="device",
+            region="eu",
+            invite_id=6,
+            device_sn="T8124ZZZZZZZZZZZ",
+            product_code="T8124R",
+        ),
     ]
     rows = render.render_invites(invites, show_serials=False).splitlines()
     assert rows[0].split() == ["ID", "SHARES", "FROM", "CODE", "REGION"]
@@ -340,6 +361,8 @@ def test_invites_name_what_each_shares_and_whether_it_needs_a_code() -> None:
     assert "eufyCam 3" in rows[5]
     assert rows[5].split()[-4:] == ["T8160***7890", "?", "needed", "us"]
     assert rows[6].split() == ["D4", "T9999", "?", "?", "-", "us"]
+    assert rows[7].split()[:3] == ["D5", "eufyCam", "C31"]  # the unit's product name
+    assert rows[8].split()[:4] == ["D6", "SoloCam", "S40", "T8124***ZZZZ"]  # by product code
     shown = render.render_invites(invites, show_serials=True)
     assert "kim@example.invalid" in shown
     assert SYNTHETIC.camera_sn in shown

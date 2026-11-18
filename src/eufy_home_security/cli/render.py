@@ -16,7 +16,7 @@ from .._logging import redact, redact_serial
 from ..devices.capabilities import profile_for_serial
 from ..devices.command_types import command_name
 from ..devices.model_settings import SettingKind
-from ..devices.types import model_for_serial
+from ..devices.types import model_for_serial, product_name
 from ..events import (
     AccountMismatch,
     AlarmChanged,
@@ -65,9 +65,10 @@ def fmt_serial(serial: str | None, show: bool) -> str:
 
 
 def model_label(serial: str) -> str:
-    """The catalog name for a serial, or its prefix when not catalogued."""
-    model = model_for_serial(serial)
-    return model.name if model else f"model {serial[:5]} (not in catalog)"
+    """The product name for a serial (:func:`~..devices.types.product_name`), or its
+    prefix when not catalogued."""
+    name = product_name(serial)
+    return name if name is not None else f"model {serial[:5]} (not in catalog)"
 
 
 def guard_mode_label(mode: GuardMode | int | None) -> str:
@@ -128,7 +129,7 @@ def render_devices(devices: Sequence[CloudDevice], *, show_serials: bool) -> str
             prefix + (device.name or "(unnamed)"),
             channel,
             fmt_serial(device.device_sn, show_serials),
-            model.name if model else f"{device.device_sn[:5]} (not in catalog)",
+            device.model_name or f"{device.device_sn[:5]} (not in catalog)",
             str(model.kind) if model else "",
             str(model.evidence.support) if model else "unknown",
             device.region or "",
@@ -169,8 +170,8 @@ def render_invites(invites: Sequence[CloudInvite], *, show_serials: bool) -> str
         if invite.kind == "house":
             shares = f'home "{invite.house_name or "(unnamed)"}"'
         else:
-            model = model_for_serial(invite.device_sn or "")
-            name = model.name if model else invite.product_code or "device"
+            name = product_name(invite.device_sn or "", invite.product_code)
+            name = name or invite.product_code or "device"
             shares = f"{name} {fmt_serial(invite.device_sn, show_serials)}"
         inviter = invite.inviter or "?"
         if not show_serials and "@" in inviter:
