@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from datetime import UTC, datetime
@@ -44,7 +45,7 @@ from ..network import LanPath, PathWarning, suggest_local_ports
 
 if TYPE_CHECKING:
     from ..client import ModelStatus
-    from ..cloud.models import CloudDevice
+    from ..cloud.models import CloudDevice, CloudInvite
     from ..devices.model_settings import Setting, Value
     from ..p2p.discovery import DiscoveredStation
     from ..p2p.storage_info import StorageInfo, StorageMedium
@@ -141,6 +142,51 @@ def render_devices(devices: Sequence[CloudDevice], *, show_serials: bool) -> str
         rows.extend(row(child, "└ ") for child in children.get(station.device_sn, []))
     rows.extend(row(device, "") for device in orphans)
     return "\n".join(_table(rows, indent=""))
+
+
+def invite_refs(invites: Sequence[CloudInvite]) -> list[str]:
+    """The id ``invites accept`` takes for each invitation: ``H`` (a home) or ``D`` (a
+    device) and its id, since the two lists number their entries apart; ``@<region>`` is
+    added when the same one is listed more than once. ``-`` for one without an id."""
+    bases = [
+        "-" if i.invite_id is None else f"{'H' if i.kind == 'house' else 'D'}{i.invite_id}"
+        for i in invites
+    ]
+    counts = Counter(bases)
+    return [
+        base if base == "-" or counts[base] == 1 else f"{base}@{invite.region}"
+        for base, invite in zip(bases, invites, strict=True)
+    ]
+
+
+def render_invites(invites: Sequence[CloudInvite], *, show_serials: bool) -> str:
+    """The pending invitations, one row each; ``show_serials`` off also masks an inviter
+    named by e-mail address."""
+    if not invites:
+        return "No pending invitations."
+    rows: list[tuple[str, ...]] = [("ID", "SHARES", "FROM", "CODE", "REGION")]
+    for ref, invite in zip(invite_refs(invites), invites, strict=True):
+        if invite.kind == "house":
+            shares = f'home "{invite.house_name or "(unnamed)"}"'
+        else:
+            model = model_for_serial(invite.device_sn or "")
+            name = model.name if model else invite.product_code or "device"
+            shares = f"{name} {fmt_serial(invite.device_sn, show_serials)}"
+        inviter = invite.inviter or "?"
+        if not show_serials and "@" in inviter:
+            inviter = redact(inviter)
+        rows.append(
+            (
+                ref,
+                shares,
+                inviter,
+                "needed" if invite.needs_code else "-",
+                invite.region,
+            )
+        )
+    return "\n".join(
+        [*_table(rows, indent=""), "", "Accept one with: eufy-security invites accept ID"]
+    )
 
 
 # ── network ──────────────────────────────────────────────────────────────────

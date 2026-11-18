@@ -306,17 +306,39 @@ cameras) **[verified, one account]**.
   reported an empty account-wide list while the eufy app showed the home's devices
   under that home **[open]**.
 - Pending invitations, read by `EufyCloudApi.async_list_invites(region)`: a shared home
-  shows its devices only once the invitation is accepted in the eufy app.
+  shows its devices only once the invitation is accepted.
   `POST app-house-{region}-pr.eufy.com/app/house/get_house_invite_records`, body
   `{"transaction": …, "is_inviter": 1}`: `data.house_invite_records[]` with `id`,
-  `house_id`, `house_name`, `action_user_nick`, `role_type`, `email`, `user_id`.
+  `house_id`, `house_name`, `action_user_nick`, `role_type`, `email`, `user_id`, and
+  `encrypted_data` when the inviter set a code.
   `POST app-devicerelation-{region}-pr.eufy.com/app/devicerelation/get_invites`, body
   `{"transaction": …, "is_inviter": 1, "categories": [], "add_pns": []}`: `data.invites[]`
   with `id`, `device_sn`, `product_code`, `action_user_nick`, `action_user_email`,
-  `member_type`, `create_time`, `status`. `is_inviter` 1 asks the invitations sent to
+  `member_type`, `create_time`, `status`, `user_id` (the owner), `category`, `sub_sns`,
+  and `encrypted_data` when the inviter set a code. `is_inviter` 1 asks the invitations sent to
   the account (the app's start-up invitation dialog), 0 the ones it sent **[declared:
   app]**. Both answer code 0 with empty lists on an account whose shares were accepted
-  **[verified, one account]**; a pending entry has not been observed.
+  **[verified, one account]**; a pending device entry with `encrypted_data` was listed and
+  accepted on another account **[verified, once]**.
+- Accepting one, `EufyCloudApi.async_accept_invite(invite, code=…)`: a home **[declared:
+  app]** with `POST app-house-{region}-pr.eufy.com/app/house/confirm_house_invited`, body
+  `{"transaction": …, "categories": [], "add_pns": [], "house_id": …, "invite_id": <id>,
+  "is_inviter": 1}`; a device with
+  `POST app-devicerelation-{region}-pr.eufy.com/app/devicerelation/confirm_invite`, body
+  `{"transaction": …, "invites": [{"category": …, "device_sn": …, "invite_id": <id>,
+  "owner_user_id": <the entry's user_id>, "sub_sns": …}]}` (a missing `category` is sent
+  as `eufy_security`, a missing owner or `sub_sns` as `""`) **[verified, one device
+  invitation with a code]**. Success is code 0 with no data. A device entry of category
+  `eufy_home` or `eufy_home_tuya` is accepted by the app on another path; the library
+  refuses it.
+- An invitation whose entry carries `encrypted_data` needs the code the inviter shared.
+  The app checks the code on the phone and the accept request does not carry it:
+  `encrypted_data` = `base64(salt16 ‖ nonce12 ‖ ciphertext ‖ tag16)`, AES-256-GCM under
+  `PBKDF2-HMAC-SHA256(code, salt, 100000 rounds, 32 bytes)`; the code is right when it
+  opens to a non-empty text **[verified: the inviter's code opened a live
+  `encrypted_data`]**. A device entry without its own `encrypted_data` takes the one of
+  another pending device entry with the same `user_id` (the app asks one code for an
+  owner's invitations) **[declared: app]**.
 - The security realm (the same identity as `get_ciphers`, `category: eufy_security`):
   `POST <security host>/v3/app/get_hub_list` (stations; the region's host from
   [Hosts](#hosts)) and

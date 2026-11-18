@@ -323,6 +323,45 @@ async def cmd_devices(ctx: Context) -> int:
     return 0
 
 
+async def cmd_invites(ctx: Context) -> int:
+    """List the pending invitations, or accept the one ``ID`` names (with ``--code`` or
+    a prompt for the code its inviter shared, when it needs one)."""
+    async with await open_account(ctx) as eufy:
+        await eufy.async_login()
+        invites = await eufy.async_pending_invites()
+        if ctx.args.action == "list":
+            print(render.render_invites(invites, show_serials=ctx.show_serials))
+            return 0
+        wanted = ctx.args.invite.upper()
+        base, _, region = wanted.partition("@")
+        refs = render.invite_refs(invites)
+        matches = [
+            (invite, ref)
+            for invite, ref in zip(invites, refs, strict=True)
+            if ref.upper().partition("@")[0] == base
+            and (not region or invite.region.upper() == region)
+        ]
+        if len(matches) != 1:
+            choices = list(dict.fromkeys(r for r in refs if r.upper().partition("@")[0] == base))
+            if len(choices) == 1 and len(matches) > 1:
+                raise UsageError(
+                    f"invitation {choices[0]} is listed more than once; accept it in the eufy app"
+                )
+            hint = f" (choices: {', '.join(choices)})" if choices else ""
+            raise UsageError(
+                f"no single pending invitation {ctx.args.invite}{hint}; `{PROG} invites` lists them"
+            )
+        ((invite, ref),) = matches
+        code = None
+        if invite.needs_code:
+            code = ctx.args.code or await ctx.ask("Code the inviter shared: ")
+        elif ctx.args.code:
+            print(f"{PROG}: invitation {ref} needs no code; --code ignored", file=sys.stderr)
+        await eufy.async_accept_invite(invite, code=code)
+    print(f"Accepted invitation {ref}; `{PROG} devices` lists the shared devices.")
+    return 0
+
+
 async def cmd_status(ctx: Context) -> int:
     serial = await _pinned_station_serial(ctx)
     async with await open_account(ctx, station_sn=serial) as eufy:
@@ -721,6 +760,7 @@ COMMANDS: dict[str, Callable[[Context], Coroutine[Any, Any, int]]] = {
     "discover": cmd_discover,
     "login": cmd_login,
     "devices": cmd_devices,
+    "invites": cmd_invites,
     "network": cmd_network,
     "status": cmd_status,
     "coverage": cmd_coverage,
