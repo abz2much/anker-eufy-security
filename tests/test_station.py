@@ -8,8 +8,9 @@ import json
 import logging
 import math
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -18,8 +19,10 @@ import pytest
 import eufy_home_security.p2p.session as session_mod
 import eufy_home_security.station as station_mod
 import eufy_home_security.station.ptz as station_ptz
+from eufy_home_security import MediumState
 from eufy_home_security._logging import redact_serial
 from eufy_home_security.cloud.models import CloudDevice
+from eufy_home_security.devices import model_settings
 from eufy_home_security.devices._ptz_data import PTZ
 from eufy_home_security.devices.capabilities import (
     PTZ_ACTION_NEEDS,
@@ -37,6 +40,7 @@ from eufy_home_security.devices.live_view import (
 )
 from eufy_home_security.devices.model_settings import (
     PARENTLESS_ONLY,
+    SdStatusGroups,
     bundled_codes,
     mode_table_settings,
     settings_of,
@@ -2941,8 +2945,11 @@ def test_station_devices_hub_vs_standalone(
     assert on_demand_station.devices == (on_demand_station.device,)
 
 
-async def _standalone(fake: FakeStation, serial: str) -> Station:
-    """A standalone camera ``serial`` that is its own station, on ``fake``."""
+async def _standalone(
+    fake: FakeStation, serial: str, *, raw: dict[str, Any] | None = None
+) -> Station:
+    """A standalone camera ``serial`` that is its own station, on ``fake`` (``raw``: its
+    cloud entry's raw fields)."""
     fake.serial = serial
     fake.static_key = static_key(serial, fake.did)
 
@@ -2956,6 +2963,7 @@ async def _standalone(fake: FakeStation, serial: str) -> Station:
         name="PTZ",
         p2p_did=SYNTHETIC.did,
         station_sn=serial,
+        raw=raw or {},
     )
     station = Station(device, session)
     await station.async_update()
@@ -5344,6 +5352,186 @@ async def test_async_get_storage_routes_to_sd_info_on_standalone_station(
     assert info.emmc.size_mib == 8000
     assert info.disk is None
     assert standalone_station.storage == info
+
+
+async def test_a_standalone_camera_without_a_usable_card_answers_storage_at_once(
+    standalone_station: Station, fake: FakeStation
+) -> None:
+    fake.sd_info = (4, 0, 0)
+    async with asyncio.timeout(1.0):  # under one SD_INFO_RESEND: answered, not resent
+        info = await standalone_station.async_get_storage()
+    assert info.emmc is not None
+    assert (info.emmc.usable, info.emmc.state) == (False, MediumState.NO_CARD)
+    assert info.emmc.size_mib is None
+    assert fake.sd_info_queries == 1
+    assert standalone_station.storage == info
+
+
+@pytest.mark.parametrize(
+    ("serial", "group", "state"),
+    [
+        ("T8170P2000054321", 0, MediumState.NORMAL),  # its handler groups 30 as normal
+        ("T8115P2000054321", 1, MediumState.OTHER),  # its handler leaves 30 out
+    ],
+)
+async def test_a_standalone_camera_groups_the_status_as_its_model_does(
+    fake: FakeStation, serial: str, group: int, state: MediumState
+) -> None:
+    fake.sd_info = (30, 8000, 2000)
+    station = await _standalone(fake, serial)
+    try:
+        info = await station.async_get_storage()
+    finally:
+        await station.async_close()
+    assert info.emmc is not None
+    assert (info.emmc.work_status, info.emmc.status_group, info.emmc.state) == (30, group, state)
+    assert info.emmc.usable is (state is MediumState.NORMAL)
+
+
+async def test_a_model_without_a_grouping_groups_with_the_library_table(
+    fake: FakeStation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(station_mod, "sd_status_groups", lambda code: None)
+    fake.sd_info = (30, 8000, 2000)
+    station = await _standalone(fake, "T8115P2000054321")
+    try:
+        info = await station.async_get_storage()
+    finally:
+        await station.async_close()
+    assert info.emmc is not None
+    assert (info.emmc.status_group, info.emmc.state, info.emmc.usable) == (
+        0,
+        MediumState.NORMAL,
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "group", "state"),
+    [("4", 2, MediumState.NO_CARD), ("", 0, MediumState.NORMAL)],
+    ids=["set", "empty"],
+)
+async def test_a_model_that_prefers_the_status_parameter_groups_the_devices_value(
+    fake: FakeStation, monkeypatch: pytest.MonkeyPatch, value: str, group: int, state: MediumState
+) -> None:
+    """The device's own status parameter (cloud list) wins over the answer's status 0."""
+    asked: list[str | None] = []
+
+    def groups(code: str | None) -> SdStatusGroups:
+        asked.append(code)
+        return SdStatusGroups({0: 0, 4: 2}, 1, 1135)
+
+    monkeypatch.setattr(station_mod, "sd_status_groups", groups)
+    fake.sd_info = (0, 8000, 2000)
+    raw = {"params": [{"param_type": 1135, "param_value": value}]}
+    station = await _standalone(fake, "T8115P2000054321", raw=raw)
+    try:
+        info = await station.async_get_storage()
+    finally:
+        await station.async_close()
+    assert asked == ["T8115"]
+    assert info.emmc is not None
+    assert (info.emmc.work_status, info.emmc.status_group, info.emmc.state) == (0, group, state)
+
+
+@pytest.fixture
+def malformed_t8115(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[SimpleNamespace]:
+    """``.malform()`` points the models directory at a copy of the bundled files whose T8115
+    file has a malformed ``sd_status_groups``; ``.asked`` lists the codes the station's
+    grouping lookup was called with."""
+    root = model_settings._root()
+    doc = json.loads(root.joinpath("T8115.json").read_text(encoding="utf-8"))
+    doc["sd_status_groups"] = []
+    (tmp_path / "T8115.json").write_text(json.dumps(doc), encoding="utf-8")
+    index = json.loads(root.joinpath("INDEX.json").read_text(encoding="utf-8"))
+    index["codes"] = ["T8115"]
+    (tmp_path / "INDEX.json").write_text(json.dumps(index), encoding="utf-8")
+    asked: list[str | None] = []
+    caches = (model_settings._load, model_settings._resolved, model_settings.bundled_codes)
+
+    def lookup(code: str | None) -> SdStatusGroups | None:
+        asked.append(code)
+        return model_settings.sd_status_groups(code)
+
+    def malform() -> None:
+        monkeypatch.setattr(model_settings, "_root", lambda: tmp_path)
+        for cache in caches:
+            cache.cache_clear()
+
+    monkeypatch.setattr(station_mod, "sd_status_groups", lookup)
+    yield SimpleNamespace(asked=asked, malform=malform)
+    monkeypatch.undo()
+    for cache in caches:
+        cache.cache_clear()
+
+
+async def test_a_malformed_grouping_file_still_gives_the_storage_record(
+    fake: FakeStation, malformed_t8115: SimpleNamespace, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The library's table groups the status (30: normal), the file is read once and the
+    failure logged once."""
+    fake.sd_info = (30, 8000, 2000)
+    station = await _standalone(fake, "T8115P2000054321")
+    malformed_t8115.malform()
+    try:
+        with caplog.at_level(logging.WARNING, logger=station_mod.__name__):
+            first = await station.async_get_storage()
+            second = await station.async_get_storage()
+    finally:
+        await station.async_close()
+    for info in (first, second):
+        assert info.emmc is not None
+        assert (info.emmc.status_group, info.emmc.state, info.emmc.usable) == (
+            0,
+            MediumState.NORMAL,
+            True,
+        )
+    assert malformed_t8115.asked == ["T8115"]
+    warned = [r for r in caplog.records if "SDINFO_EX grouping" in r.getMessage()]
+    assert len(warned) == 1
+    assert "T8115.json" in warned[0].getMessage()
+
+
+async def test_concurrent_reads_of_a_malformed_grouping_log_it_once(
+    fake: FakeStation, malformed_t8115: SimpleNamespace, caplog: pytest.LogCaptureFixture
+) -> None:
+    station = await _standalone(fake, "T8115P2000054321")
+    malformed_t8115.malform()
+    try:
+        with caplog.at_level(logging.WARNING, logger=station_mod.__name__):
+            groups = await asyncio.gather(station._sd_status_group(), station._sd_status_group())
+    finally:
+        await station.async_close()
+    assert malformed_t8115.asked == ["T8115", "T8115"]  # both began before either finished
+    assert [g(30) for g in groups] == [0, 0]
+    assert len([r for r in caplog.records if "SDINFO_EX grouping" in r.getMessage()]) == 1
+
+
+@pytest.mark.parametrize(
+    ("dumped", "listed", "group"),
+    [("4", "", 2), ("4", "0", 2), ("", "4", 0)],
+    ids=["dump-set-cloud-empty", "dump-set-cloud-other", "dump-empty-cloud-set"],
+)
+async def test_the_devices_own_status_parameter_wins_over_the_clouds_copy(
+    fake: FakeStation, monkeypatch: pytest.MonkeyPatch, dumped: str, listed: str, group: int
+) -> None:
+    """The station's dump of 1135 is the value grouped, an empty one included (the answer's
+    status 0 then decides)."""
+    monkeypatch.setattr(
+        station_mod, "sd_status_groups", lambda code: SdStatusGroups({0: 0, 4: 2}, 1, 1135)
+    )
+    fake.sd_info = (0, 8000, 2000)
+    fake.params[255][1135] = dumped
+    raw = {"params": [{"param_type": 1135, "param_value": listed}]}
+    station = await _standalone(fake, "T8115P2000054321", raw=raw)
+    try:
+        assert station.state is not None
+        assert station.state.setting_params.get(1135) == dumped
+        info = await station.async_get_storage()
+    finally:
+        await station.async_close()
+    assert info.emmc is not None
+    assert (info.emmc.work_status, info.emmc.status_group) == (0, group)
 
 
 async def test_async_get_storage_on_homebase_retains_1307_path(

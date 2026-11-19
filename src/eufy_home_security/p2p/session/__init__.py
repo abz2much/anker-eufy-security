@@ -188,6 +188,7 @@ from ..storage_info import (
     parse_sd_card_info,
     parse_storage_info,
     result_code,
+    sd_status_group,
     storage_query_payload,
     storage_record,
 )
@@ -298,9 +299,11 @@ STORAGE_TIMEOUT = 30.0
 A station that refuses the query ends the wait sooner with its receipt (a HomeBase 2
 sent -1 after 18 s)."""
 SD_INFO_RESEND = 2.0
-"""How often the eMMC query (1144) is resent: a just-woken T8170 ignores it briefly."""
+"""How often the local-medium query (1144) is resent: a just-woken T8170 ignores it
+briefly."""
 SD_INFO_TIMEOUT = 15.0
-"""How long the eMMC query keeps retrying a just-woken camera before giving up."""
+"""How long the local-medium query (1144) keeps retrying a just-woken camera before
+giving up."""
 MEDIA_PING_INTERVAL = 3.0
 """How often a standalone device's open live stream gets the app's 1139 PING. A T8170
 ends a stream about 10 s after it opens unless pinged; with a ping every 3 s (the app's
@@ -1950,19 +1953,24 @@ class StationSession:
             )
         return cast(StorageInfo, info)
 
-    async def async_get_sd_info(self, *, timeout: float | None = None) -> StorageInfo:
-        """A standalone camera's built-in eMMC, via ``SDINFO_EX`` (``1144``).
+    async def async_get_sd_info(
+        self, *, timeout: float | None = None, group: Callable[[int], int] = sd_status_group
+    ) -> StorageInfo:
+        """The device's local medium (SD card or built-in eMMC), via ``SDINFO_EX`` (``1144``).
 
         The query a standalone device answers where it does not answer the HomeBase
         storage record (``1307`` / ``11001``): a bare command frame of type ``1144``,
         answered by a frame of the same type carrying a 12-byte body (three ``int32``:
-        status, total, free — see :func:`~..storage_info.parse_sd_card_info`). The result
-        is a :class:`StorageInfo` with only ``emmc`` set, kept as :attr:`storage` and
-        announced with :class:`~...events.StorageChanged` when it changed.
+        status, total, free — see :func:`~..storage_info.parse_sd_card_info`). Every
+        such answer is the result, a medium that is not usable (no card, total 0)
+        included: a :class:`StorageInfo` with only ``emmc`` set, kept as :attr:`storage`
+        and announced with :class:`~...events.StorageChanged` when it changed. ``group``
+        groups the status (the device model's grouping, which the caller knows; default
+        :func:`~..storage_info.sd_status_group`, the library's table).
 
         A T8170 just woken ignores the query for a few seconds (as it does the
         event-count query), so it is resent every :data:`SD_INFO_RESEND` seconds until
-        answered or ``timeout``; raises :class:`DeviceTimeoutError` when nothing does.
+        answered or ``timeout``; raises :class:`DeviceTimeoutError` when nothing answers.
         """
         timeout = _or(timeout, SD_INFO_TIMEOUT)
         await self.async_connect()
@@ -1972,28 +1980,23 @@ class StationSession:
             # but clear, like a receipt (never a JSON reply), so bind by type alone.
             if inbound.type != CMD_SD_INFO or inbound.channel != 0:
                 return None
-            emmc = parse_sd_card_info(inbound.frame.payload)
+            emmc = parse_sd_card_info(inbound.frame.payload, group=group)
             if emmc is None:
-                return None  # a receipt-shaped 1144 frame (no usable eMMC); keep waiting
+                return None  # a body too short to be the answer; keep waiting
             info = StorageInfo(emmc=emmc)
             self._keep_storage(info)
             return info
 
-        deadline = time.monotonic() + timeout
         async with self._op("sd info read"):
-            while True:
-                remaining = deadline - time.monotonic()
-                try:
-                    info = await self._request(
-                        lambda: self._send_secure(b"", frame_type=CMD_SD_INFO),
-                        match,
-                        timeout=max(min(SD_INFO_RESEND, remaining), 0.1),
-                        label="sd info query",
-                    )
-                    return cast(StorageInfo, info)
-                except DeviceTimeoutError:
-                    if remaining <= SD_INFO_RESEND:
-                        raise
+            info = await self._request_resending(
+                lambda: self._send_secure(b"", frame_type=CMD_SD_INFO),
+                match,
+                timeout=timeout,
+                every=SD_INFO_RESEND,
+                label="sd info query",
+                answer="SDINFO_EX",
+            )
+        return cast(StorageInfo, info)
 
     async def async_query_events(
         self,
@@ -2073,21 +2076,16 @@ class StationSession:
             payload = event_count_payload(transaction)
             self._send_secure(device_msg(creds.account_id, CMD_DATABASE, payload))
 
-        deadline = time.monotonic() + timeout
         async with self._op("event count"):
-            while True:
-                remaining = deadline - time.monotonic()
-                try:
-                    summary = await self._request(
-                        send,
-                        match,
-                        timeout=max(min(EVENT_COUNT_RESEND, remaining), 0.1),
-                        label="event count",
-                    )
-                    return cast(EventSummary, summary)
-                except DeviceTimeoutError:
-                    if remaining <= EVENT_COUNT_RESEND:
-                        raise
+            summary = await self._request_resending(
+                send,
+                match,
+                timeout=timeout,
+                every=EVENT_COUNT_RESEND,
+                label="event count",
+                answer="event count",
+            )
+        return cast(EventSummary, summary)
 
     async def async_list_history(
         self,
@@ -3684,6 +3682,31 @@ class StationSession:
         for waiter in self._waiters:
             if not waiter.future.done():
                 waiter.future.set_exception(exc)
+
+    async def _request_resending(
+        self,
+        send: Callable[[], object],
+        match: Matcher,
+        *,
+        timeout: float,
+        every: float,
+        label: str,
+        answer: str,
+    ) -> object:
+        """:meth:`_request`, sent again every ``every`` seconds until answered or ``timeout``.
+
+        Raises :class:`DeviceTimeoutError` naming ``answer`` and the whole ``timeout``.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            try:
+                return await self._request(
+                    send, match, timeout=max(min(every, remaining), 0.1), label=label
+                )
+            except DeviceTimeoutError:
+                if remaining <= every:
+                    raise DeviceTimeoutError(f"no {answer} answer within {timeout:g}s") from None
 
     async def _request(
         self,

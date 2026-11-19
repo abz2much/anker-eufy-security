@@ -13,7 +13,9 @@ The eufy app asks each station model its own storage query (:func:`storage_query
   ``0x0547`` ``{"cmd": 55000, "hdd_exist", "emmc_status", "usb_status", "payload":
   {"emmc_total", "emmc_free", "hdd_total", "hdd_free"}}`` (:func:`parse_hub_storage`).
 - ``1144`` (:attr:`StorageQuery.SD_INFO`, ``SDINFO_EX``): a bare command frame, answered
-  by a frame of the same type with three ``int32`` (:func:`parse_sd_card_info`).
+  by a frame of the same type with three ``int32`` (:func:`parse_sd_card_info`): the
+  device's local medium (a camera's SD card or built-in eMMC) and its status, grouped
+  as the device model's handler groups it (:class:`MediumState`).
 
 The record comes off the network: every field is validated on its own, and a missing
 or malformed one becomes ``None`` rather than an error. See
@@ -24,13 +26,14 @@ from __future__ import annotations
 
 import math
 import struct
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Final
 
 from ..exceptions import ProtocolError
+from ..models import STORAGE_STATUS_NORMAL
 from ._json import json_int, loads_json
 
 #: The storage command (``NOTIFY_STORAGE``); its verb sits in ``payload.cmd``.
@@ -39,8 +42,8 @@ CMD_STORAGE: Final = 1307
 STORAGE_QUERY_INFO: Final = 11001
 #: Verb: format a disk (destructive; the library never sends it).
 STORAGE_FORMAT: Final = 11003
-#: The eMMC query (``SDINFO_EX``, ``GET_SD_INFO_EXT``): a bare command frame of this
-#: type answered by a frame of the same type with three ``int32`` (see
+#: The local-medium query (``SDINFO_EX``, ``GET_SD_INFO_EXT``): a bare command frame of
+#: this type answered by a frame of the same type with three ``int32`` (see
 #: :func:`parse_sd_card_info`).
 CMD_SD_INFO: Final = 1144
 #: The HomeBase 2 storage query (``APP_CMD_GET_HUB_STORAGE_INFO``).
@@ -66,7 +69,7 @@ class StorageQuery(StrEnum):
     HUB_STORAGE = "hub_storage"
     """``55000``: a HomeBase 2 from firmware :data:`HUB_STORAGE_FIRMWARE`."""
     SD_INFO = "sd_info"
-    """``1144`` (``SDINFO_EX``): the eMMC figures alone."""
+    """``1144`` (``SDINFO_EX``): the local medium's figures and status alone."""
     NONE = "none"
     """The app asks this model no storage query."""
 
@@ -171,6 +174,69 @@ def _object(obj: Mapping[str, Any], key: str) -> Mapping[str, Any] | None:
     return value if isinstance(value, Mapping) else None
 
 
+# ── the SDINFO_EX status ─────────────────────────────────────────────────────
+
+
+SD_STATUS_GROUPS: Final[Mapping[int, frozenset[int]]] = MappingProxyType(
+    {
+        0: STORAGE_STATUS_NORMAL,
+        1: frozenset({27, 28}),
+        2: frozenset({4, 31}),
+        4: frozenset({22}),
+        6: frozenset({11}),
+        7: frozenset({5, 6}),
+        8: frozenset({2, 3}),
+        9: frozenset({7, 14, 16, 17, 23}),
+        10: frozenset({1, 9, 10, 12, 19, 20, 26}),
+        11: frozenset({15}),
+        12: frozenset({13, 18, 21}),
+        13: frozenset({8}),
+        18: frozenset({29}),
+        22: frozenset({33}),
+    }
+)
+"""The display group of each ``SDINFO_EX`` status code, by group: the union of the
+products' tables **[declared: app]**. A model whose file carries a grouping groups by its
+handler's own table (:func:`~..devices.model_settings.sd_status_groups`); this table is
+the library's choice for any other device (a model without a file, or whose handler reads
+no status). See docs/protocol/commands.md. The app also names groups 3, 5 and 14, which
+no code reaches."""
+SD_STATUS_DEFAULT_GROUP: Final = 1
+"""The group of a status code :data:`SD_STATUS_GROUPS` does not list."""
+
+_GROUP_OF_STATUS: Final[Mapping[int, int]] = MappingProxyType(
+    {code: group for group, codes in SD_STATUS_GROUPS.items() for code in codes}
+)
+
+
+def sd_status_group(status: int) -> int:
+    """The display group of the ``SDINFO_EX`` status ``status`` in the library's table
+    :data:`SD_STATUS_GROUPS`, for a device whose model has no grouping of its own."""
+    return _GROUP_OF_STATUS.get(status, SD_STATUS_DEFAULT_GROUP)
+
+
+class MediumState(StrEnum):
+    """What the app shows for a medium's status group (:attr:`StorageMedium.state`)."""
+
+    NORMAL = "normal"
+    """Group 0: in use, with no prompt in the app **[declared: app]** (status 0 on a
+    working eMMC **[verified]**)."""
+    NO_CARD = "no_card"
+    """Group 2: the app's "no SD card" prompt (status 4, and 31 on most models)
+    **[declared: app]**."""
+    CORRUPTED = "corrupted"
+    """Group 4: the app's "SD card corrupted" prompt (status 22) **[declared: app]**."""
+    OTHER = "other"
+    """Any other group: not normal, the app's meaning not named here (see
+    :attr:`StorageMedium.status_group`)."""
+
+
+MEDIUM_STATE_BY_GROUP: Final[Mapping[int, MediumState]] = MappingProxyType(
+    {0: MediumState.NORMAL, 2: MediumState.NO_CARD, 4: MediumState.CORRUPTED}
+)
+"""The status groups whose meaning the app names (:class:`MediumState`)."""
+
+
 # ── the record ───────────────────────────────────────────────────────────────
 
 
@@ -217,13 +283,20 @@ class StorageMedium:
     health: int | None = None
     """``health``: the app flags 1, 2 and 3 as a fault and names no other code."""
     work_status: int | None = None
-    """``work_status``: 0 idle; other codes unknown."""
+    """The medium's status code: ``work_status`` on a ``1307`` record (0 idle, other codes
+    unknown), ``emmc_status`` / ``usb_status`` on a ``55000`` record, and on an
+    ``SDINFO_EX`` (``1144``) record the raw status code that :attr:`status_group`
+    groups."""
     parted_status: int | None = None
     """``parted_status``: 1 ready, 2 formatting."""
     wear_percent: int | None = None
     """``eol_percent``: life used, 0-100 (end of life at 100)."""
     station_used_percent: int | None = None
     """The station's own use percentage (``data_used_percent``), when it reports one."""
+    status_group: int | None = None
+    """The display group of an ``SDINFO_EX`` status, as the device model's handler groups
+    :attr:`work_status` (:func:`parse_sd_card_info`); None for a record that carries no
+    such status (``1307``, ``55000``)."""
     label: str | None = field(default=None, repr=False)
     """``hdd_label``: the file-system label, new on every format."""
     serial: str | None = field(default=None, repr=False)
@@ -273,6 +346,22 @@ class StorageMedium:
         """False for a fault code the app flags (``health`` 1, 2, 3), else True; None
         when the record has no health code."""
         return None if self.health is None else self.health not in _HEALTH_FAULTS
+
+    @property
+    def state(self) -> MediumState | None:
+        """The app's meaning of :attr:`status_group` (:data:`MEDIUM_STATE_BY_GROUP`, else
+        :attr:`MediumState.OTHER`); None without a status group."""
+        if self.status_group is None:
+            return None
+        return MEDIUM_STATE_BY_GROUP.get(self.status_group, MediumState.OTHER)
+
+    @property
+    def usable(self) -> bool | None:
+        """True for a normal status and a size; False for any other status or no size
+        (no card, an unusable one, a total of 0); None without a status group."""
+        if self.status_group is None:
+            return None
+        return self.state is MediumState.NORMAL and bool(self.size_mib)
 
     @property
     def formatting(self) -> bool | None:
@@ -432,15 +521,21 @@ def parse_storage_info(body: Mapping[str, Any]) -> StorageInfo:
 SD_INFO_LEN: Final = 12
 
 
-def parse_sd_card_info(payload: bytes) -> EmmcInfo | None:
-    """The built-in eMMC of a standalone camera from a ``SDINFO_EX`` (1144) frame.
+def parse_sd_card_info(
+    payload: bytes, *, group: Callable[[int], int] = sd_status_group
+) -> EmmcInfo | None:
+    """A device's local medium (SD card or built-in eMMC) from a ``SDINFO_EX`` (1144) frame.
 
-    The camera answers frame type 1144 with a 12-byte body (GCM-tagged but clear, like
-    a receipt): three little-endian ``int32`` — a status code (0 normal), the total size
-    and the free size, in the camera's own **MB** (base 1000, as the app formats them).
+    The device answers frame type 1144 with a 12-byte body (GCM-tagged but clear, like
+    a receipt): three little-endian ``int32`` — a status code, the total size and the
+    free size, in the device's own **MB** (base 1000, as the app formats them).
     ``used`` is ``total - free`` (the response carries no system reserve), and
     :attr:`~StorageMedium.used_percent` derives from it: the figure the eMMC diagnostic
-    shows. None for a body too short or a non-positive total (no usable eMMC).
+    shows. The status is ``work_status``, its group ``status_group``: ``group`` of the
+    status, the device model's grouping where the caller has one, else
+    :func:`sd_status_group`. :attr:`~StorageMedium.usable` is False for a status other
+    than normal or a total that is not positive, whose sizes are then None. None only
+    for a body too short to be an answer.
 
     The field order is by observation: the free size never exceeds the total, so with a
     status of 0 the layout ``[status, total, free]`` is the only consistent reading of a
@@ -449,8 +544,9 @@ def parse_sd_card_info(payload: bytes) -> EmmcInfo | None:
     if len(payload) < SD_INFO_LEN:
         return None
     status, total, free = struct.unpack_from("<3i", payload)
+    status_group = group(status)
     if total <= 0:
-        return None
+        return EmmcInfo(work_status=status, status_group=status_group)
     free = max(min(free, total), 0)
     used = total - free
     return EmmcInfo(
@@ -458,6 +554,7 @@ def parse_sd_card_info(payload: bytes) -> EmmcInfo | None:
         used_mib=used,
         filesystem_used_mib=used,
         work_status=status,
+        status_group=status_group,
     )
 
 
@@ -496,7 +593,8 @@ def parse_hub_storage(obj: Mapping[str, Any]) -> StorageInfo | None:
     top level carries ``emmc_status``, ``usb_status`` (the disk's) and ``hdd_exist``.
     Like the app, a medium whose status is 1 or 26 counts as empty, and a disk counts
     only with ``hdd_total`` > 0 and ``hdd_exist`` 1 (or absent). Each status becomes
-    the medium's ``work_status``.
+    the medium's ``work_status``, ungrouped (``status_group`` None): the app reads these
+    codes only as empty or not, never through the ``SDINFO_EX`` grouping.
     """
     if json_int(obj.get("cmd")) != CMD_HUB_STORAGE:
         return None

@@ -468,7 +468,7 @@ Each station handler of the app builds its own `get_storage_info` request
 |---|---|
 | T8030 (HomeBase 3), T8025, T9000, T8N00 | `1307` / `11001` (this section) |
 | T8010 (HomeBase 2), listed `main_sw_version` ≥ 3.3.7.7 | `55000` ([below](#homebase-2-storage-55000-declared-app)) |
-| T8010 on older firmware, T8001, T8002, T8020, T8023 | `1144` ([below](#a-standalone-cameras-emmc-1144-get_sd_info_ext-verified)) |
+| T8010 on older firmware, T8001, T8002, T8020, T8023 | `1144` ([below](#a-devices-sd-card-or-emmc-1144-get_sd_info_ext-verified)) |
 | T8024 | none |
 | a standalone device not listed | `1144`; any other station not listed: `1307` |
 
@@ -554,6 +554,7 @@ field one record gains later is not lost.
 | `wear_percent` | `eol_percent` if present | `eol_percent` (life used, 0-100) |
 | `temperature_c` | `cur_temperate` (°C) | `cur_temperate` if present |
 | `health` / `healthy`, `work_status` | `health` (the app flags 1, 2, 3 as a fault; `healthy` is False for those), `work_status` (0 idle) | same |
+| `status_group`, `state`, `usable` | None: this record carries no such status (nor does `55000`) | same; set only on a `1144` record ([below](#a-devices-sd-card-or-emmc-1144-get_sd_info_ext-verified)) |
 | `parted_status`, `ready`, `formatting` | `parted_status` (1 ready, 2 formatting) | same, if present |
 | `model`, `disk_type`, `path` | `device_module`, `hdd_type`, `disk_path` | same, if present |
 | `serial`, `label` | `serial_number`, `hdd_label` — left out of `repr`; redact them in logs | same, if present |
@@ -584,6 +585,13 @@ The answer is a `0x0547` (the app parses it as `HbCard`):
 (the app shows them as MB, or ÷1000 as GB). The app shows a medium whose status is 1 or
 26 as empty (free = total) and a disk only when `hdd_exist` is 1.
 
+These statuses are not grouped like the `1144` status: the app reads `emmc_status` and
+`usb_status` only as empty (1 or 26) or not, and its storage summary for this record
+says "no storage" when both totals are 0 and "normal" otherwise, without reading either
+status. The codes are not the `1144` codes (there 1 and 26 fall into group 10), so the
+library gives this record no `status_group`, `state` or `usable` (None); `work_status`
+keeps the raw code.
+
 **Library API.** `station.async_get_storage()` sends it on such a station
 (`session.async_get_hub_storage()`), and returns a `StorageInfo` with `emmc` and, when
 `hdd_total` > 0 and `hdd_exist` is 1 (or absent), `disk`: `size_mib` = total, `used_mib`
@@ -591,9 +599,9 @@ The answer is a `0x0547` (the app parses it as `HbCard`):
 The sizes keep the station's MB in the `*_mib` fields, as the `1144` figures do. Not
 verified on hardware: the reply's exact layout comes from the app's parser.
 
-### A standalone camera's eMMC (1144 `GET_SD_INFO_EXT`) **[verified]**
+### A device's SD card or eMMC (1144 `GET_SD_INFO_EXT`) **[verified]**
 
-A standalone camera (a T8170) does not answer the HomeBase storage record (1307 /
+A standalone camera (a T8170, a T817L) does not answer the HomeBase storage record (1307 /
 11001). Its handler's `get_storage_info` recipe resolves, for a non-station device, to
 a bare **`GET_SD_INFO_EXT`** command (app enum `SDINFO_EX`) — an XZYH frame of type **1144 (`0x0478`)** with an empty
 body (`msgType 10`, no JSON). The camera answers with a frame
@@ -602,9 +610,58 @@ whose 12-byte body is three little-endian `int32`:
 
 | offset | `int32` | meaning |
 |---|---|---|
-| 0 | status | 0 normal; the app shows 2 as no card, 3 as low memory, 4 as corrupted **[app]** |
-| 4 | total | total size |
+| 0 | status | the medium's status code, grouped as below |
+| 4 | total | total size; 0 when the device reports no size (no card) |
 | 8 | free | free size |
+
+The app reads the status through a grouping table in each product's handler
+**[declared: app]**: each code falls into a display group, a code the table does not
+list into group 1. The groups whose meaning the app names are 0 (in use, no prompt), 2
+(its "no SD card" prompt) and 4 (its "SD card corrupted" prompt); the others are not
+normal, their meaning is not named here. The tables differ between products, so the
+library groups each device's status by its own model's table, generated from the
+model's handler into its settings file (`sd_status_groups`,
+[models-schema.md](../reference/models-schema.md);
+`devices.model_settings.sd_status_groups`), which says which of these applies:
+
+- **A table read from the answer** (`from` `answer`): the handler's parse of the answer
+  groups its status. The tables differ in a few codes: the T8170 groups 30 as 0 and
+  leaves 33 out (group 1), the T8030 groups 33 as 22, the T8115 leaves 29, 30, 31 and 33
+  out.
+- **The status parameter in place of the answer's status** (`param`, e.g. on the
+  T8600): whenever the device lists `1135` (`APP_CMD_GET_TFCARD_STATUS`) with a value,
+  that value is grouped instead (an empty value keeps the answer's status; a value that
+  is no decimal code falls to group 1). The library does the same with the device's
+  parameters as last reported (the station's over the cloud's copy), and groups the
+  answer's status while the device reports none.
+- **A table read from the status property** (`from` `status_property`, e.g. on the
+  T8160): the handler's parse of this answer reads no status (it reads a field the
+  answer does not carry, or there is no parse of it), so the app shows group 1 for
+  every answer. The library groups the status by the table the same handler applies to
+  the device's status parameter (`1135`), the library's choice: a group that ignores
+  the status would report every card as not usable.
+- **No table** (no settings file, or a handler that reads no status anywhere, e.g. a
+  smart lock): the library's own table (`sd_status_group`, `SD_STATUS_GROUPS`), the
+  union of the products' tables, below; the library's choice.
+
+The library's table:
+
+| group | status codes |
+|---|---|
+| 0 | 0, 25, 30 |
+| 1 | 27, 28, and every code not listed |
+| 2 | 4, 31 |
+| 4 | 22 |
+| 6 | 11 |
+| 7 | 5, 6 |
+| 8 | 2, 3 |
+| 9 | 7, 14, 16, 17, 23 |
+| 10 | 1, 9, 10, 12, 19, 20, 26 |
+| 11 | 15 |
+| 12 | 13, 18, 21 |
+| 13 | 8 |
+| 18 | 29 |
+| 22 | 33 |
 
 The app formats the sizes as **MB** (base 1000, `< 1000` → "MB", else ÷1000 → "GB") and
 takes used as `total − free` (this query carries no system-reserve figure). So for the
@@ -612,16 +669,28 @@ eMMC, used% = `(total − free) / total`. **Verified** on a T8170: the
 reply body was `00000000 e41b0000 c41b0000` = `[0, 7140, 7108]` (a ~7.14 GB eMMC, 32 MB
 = 0.4 % used); sent as a plain `1307` `DeviceMsgBean` instead the camera answered receipt
 code −1. The field order is by observation (free never exceeds total, so with status 0
-`[status, total, free]` is the only consistent reading of `[0, 7140, 7108]`).
+`[status, total, free]` is the only consistent reading of `[0, 7140, 7108]`). A T817L
+(microSD, no eMMC) answered every query within ~10 ms with `[4, 0, 0]`: status 4, group 2,
+no size **[verified: the answer; the card's state not checked]**.
 
 The app sends the same query to an older HomeBase 2 and to the T8001, T8002, T8020 and
 T8023 (see the table above); its layout there is not verified.
 
 **Library API.** On a standalone camera and those stations `station.async_get_storage()` sends this query
 instead (`session.async_get_sd_info()`): a bare `1144` frame, its answer bound by frame
-type on channel 0 and parsed from the 12-byte body. It returns a `StorageInfo` with only
-`emmc` set: an `EmmcInfo` (`size_mib` = total, `used_mib` = `total − free`,
-`work_status` = status), whose `used_percent` is the figure the eMMC diagnostic shows. It
+type on channel 0 and parsed from the 12-byte body. Any 12-byte answer is final,
+whatever its content (`[0, 0, 0]` included: `state` `normal`, `usable` False); a frame
+with a shorter body is not an answer. Unanswered, the query is resent every 2 s
+(`SD_INFO_RESEND`) and raises `DeviceTimeoutError("no SDINFO_EX answer within 15s")`
+after `SD_INFO_TIMEOUT`. It returns a `StorageInfo` with only `emmc` set: an `EmmcInfo`
+(`size_mib` = total, `used_mib` = `total − free`, `work_status` = the raw status code,
+`status_group` = its group in the model's table, above), whose `used_percent` is the
+figure the eMMC diagnostic shows. `state` names the group (`MediumState`: `normal`,
+`no_card`, `corrupted`, or `other`), and `usable` is True only for group 0 with a size.
+A total of 0 or less leaves the sizes and `used_percent` None and `usable` False; a
+status that is not normal with a size keeps its figures (`[22, 8000, 3000]`: 62.5 %
+used, `usable` False). `status_group`, `state` and `usable` are None on the `1307` and
+`55000` records. It
 is kept as `station.storage` and emits `StorageChanged` like the HomeBase record. The
 passive `emmc_used_percent` state field is HomeBase param 1190 (`GET_HB_EMMC_PERSENT`)
 only; a standalone camera has no such param, so read its eMMC use from `storage.emmc`.
