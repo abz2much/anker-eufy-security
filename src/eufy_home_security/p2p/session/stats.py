@@ -40,6 +40,20 @@ class SessionStats:
     """Sessions established (handshake completed), the first included."""
     reconnects: int
     """Sessions established after the first."""
+    connect_path: str | None
+    """How the current or last link was set up: ``"lan"`` (LAN discovery, or a punch
+    answered from an address in this host's own networks) or ``"rendezvous"`` (a punch
+    toward an address the station's rendezvous servers named, outside those networks;
+    :class:`~..transport.ConnectPath`). Before the session's first link, the path it was
+    built with (:class:`~...client.EufySecurity` passes the one its cache kept from an
+    earlier run); None when unknown."""
+    connects_by_path: Mapping[str, int]
+    """Links set up, by :attr:`connect_path` value."""
+    lan_reply_blocked: bool
+    """Whether the current or last link needed a punch toward the station's address in
+    this host's directly connected networks because its LAN search went unanswered for
+    the on-link grace: on this host's network, but a firewall drops the station's LAN
+    replies (``connect_path`` is then ``"lan"``; see ``StationSession.lan_reply_blocked``)."""
     handshake_failures: int
     """``CONN_INIT`` exchanges that yielded no session key: unanswered, or a key that
     would not unwrap."""
@@ -223,6 +237,7 @@ class HealthCounters:
     __slots__ = (
         "account_mismatch_seen",
         "connects",
+        "connects_by_path",
         "dropped_undecodable",
         "events_by_type",
         "extra_live_opened",
@@ -243,6 +258,8 @@ class HealthCounters:
         self.state_frames: Counter[str] = Counter()
         """State frames taken, by encryption (``state_frames_by_encryption``)."""
         self.connects = 0
+        self.connects_by_path: Counter[str] = Counter()
+        """Links set up, by :class:`~..transport.ConnectPath` value."""
         self.handshake_failures = 0
         self.key_refreshes = 0
         self.last_event_at: float | None = None

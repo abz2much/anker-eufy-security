@@ -657,6 +657,106 @@ def test_render_network_advises_per_warning() -> None:
     assert render_network([], show_serials=False) == "The account has no station."
 
 
+@pytest.mark.parametrize(
+    ("source", "label"),
+    [
+        (HostSource.CONFIGURED, "the configured address 192.168.1.9"),
+        (HostSource.CLOUD, "the address the cloud reports, 192.168.1.9,"),
+        (HostSource.DEVICE, "the address the station reports, 192.168.1.9,"),
+    ],
+)
+def test_render_network_names_where_a_moved_address_came_from(
+    source: HostSource, label: str
+) -> None:
+    path = LanPath(
+        serial="T8030P2000012345",
+        name="Base",
+        host="192.168.1.9",
+        host_source=source,
+        cloud_ip=None,
+        observed_ip="192.168.1.7",
+        local_port=32109,
+    )
+    out = render_network([path], show_serials=False)
+    assert f"Base: {label} is not where the station is (192.168.1.7)" in out
+
+
+def test_render_network_advises_on_a_reported_address_and_the_servers() -> None:
+    path = LanPath(
+        serial="T8030P2000012345",
+        name="Base",
+        host="192.168.7.21",
+        host_source=HostSource.DEVICE,
+        cloud_ip=None,
+        observed_ip=None,
+        local_port=32109,
+        answered=False,
+    )
+    out = render_network([path], show_serials=False)
+    assert (
+        "Base: searched at the address it reports (192.168.7.21), which can change; "
+        "give the station a fixed IP and pass --host 192.168.7.21" in out
+    )
+    assert "no LAN address is known" not in out
+    assert "may still connect through its rendezvous servers" in out
+    assert "no firewall rule is needed" in out
+
+
+@pytest.mark.parametrize(
+    ("local_port", "fix"),
+    [
+        (
+            0,
+            "allow all UDP from 192.168.7.21, or pin a port (--station 'Base' --local-port "
+            "32109) and allow UDP from 192.168.7.21 to it",
+        ),
+        (32109, "allow UDP from 192.168.7.21 to this host's port 32109"),
+    ],
+)
+def test_render_network_advises_on_a_blocked_lan_reply(local_port: int, fix: str) -> None:
+    """The firewall fix is stated once, in the blocked-reply line: no separate
+    ephemeral-port or pinned-port line repeats it."""
+    path = LanPath(
+        serial="T8030P2000012345",
+        name="Base",
+        host="192.168.7.21",
+        host_source=HostSource.CLOUD,
+        cloud_ip="192.168.7.21",
+        observed_ip=None,
+        local_port=local_port,
+        lan_reply_blocked=True,
+    )
+    out = render_network([path], show_serials=False)
+    assert (
+        "Base: on this host's network, but its LAN replies do not arrive (a firewall here "
+        "drops them), so every connect goes through eufy's servers and needs internet "
+        f"access; {fix}" in out
+    )
+    assert out.count("192.168.7.21 to") == 1
+    assert "filters inbound UDP" not in out
+    # A probe it answered: its replies arrive, so only the usual port advice is left.
+    answered = render_network([dataclasses.replace(path, answered=True)], show_serials=False)
+    assert "LAN replies do not arrive" not in answered
+    assert answered.count("192.168.7.21 to") == 1
+
+
+def test_render_network_advises_where_a_station_was_found_over_what_it_reports() -> None:
+    path = LanPath(
+        serial="T8030P2000012345",
+        name="Base",
+        host="192.168.7.21",
+        host_source=HostSource.DEVICE,
+        cloud_ip=None,
+        observed_ip="192.168.7.30",
+        local_port=32109,
+    )
+    out = render_network([path], show_serials=False)
+    assert (
+        "Base: searched at the address it reports (192.168.7.21), which can change; "
+        "give the station a fixed IP and pass --host 192.168.7.30" in out
+    )
+
+
 def test_camera_busy_and_presets_changed_render_and_serialise() -> None:
     busy = CameraBusyChanged(
         station_sn=SYNTHETIC.station_sn, device_sn=SYNTHETIC.camera_sn, busy=True

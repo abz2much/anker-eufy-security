@@ -16,12 +16,13 @@ import asyncio
 import contextlib
 import logging
 import math
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, replace
+from ipaddress import IPv4Network
 from types import MappingProxyType, TracebackType
 from typing import TYPE_CHECKING, Any, Literal, Self, cast
 
-from ._logging import Identifier, LogThrottle, Secret, redact_serial
+from ._logging import Identifier, LogThrottle, Secret, redact_serial, register_secret_bytes
 from .cloud import arming
 from .cloud.api import CipherKeys, EufyCloudApi, HttpSession, PasswordSource
 from .cloud.const import CLOUD_STATE_REFRESH, FACES_BY_IDS_PATH, firmware_ota_type
@@ -43,6 +44,7 @@ from .events import (
     AlarmChanged,
     AlarmTracker,
     CloudProblem,
+    ConnectionChanged,
     CredentialsRefreshed,
     Event,
     EventBus,
@@ -78,7 +80,14 @@ from .identity import StationClaims, is_device_serial
 from .images import PushImage, picture_content_type
 from .inclusion import Reach, StationChoice
 from .models import GuardMode
-from .network import LanPath, check_local_ports, lan_address, lan_path_for, with_discovery
+from .network import (
+    LanPath,
+    check_local_ports,
+    extra_search_hosts,
+    lan_address,
+    lan_path_for,
+    with_discovery,
+)
 from .p2p.crypto import CONN_INIT_NO_CIPHER
 from .p2p.did import Did
 from .p2p.media import StillFormat, classify_still, decode_still
@@ -91,7 +100,7 @@ from .p2p.session import (
     WakeProvider,
     _session_budget,
 )
-from .p2p.transport import Wake
+from .p2p.transport import ConnectPath, PPPPTransport, Wake
 from .station import RemoteStation, Station, station_block_aliases, station_channels
 from .storage import SessionCache, Store
 
@@ -102,6 +111,16 @@ if TYPE_CHECKING:
     from .push.fcm import PushListener
 
 _LOGGER = logging.getLogger(__name__)
+
+RENDEZVOUS_PROBE_TIMEOUT = 5.0
+"""Seconds a setup probe waits for one station's punch through its rendezvous servers
+(:meth:`EufySecurity.async_station_choices`)."""
+RENDEZVOUS_PROBE_CONCURRENCY = 4
+"""Stations probed through their rendezvous servers at a time."""
+RENDEZVOUS_PROBE_BUDGET = 20.0
+"""Seconds all of a setup's rendezvous probes may take, DSK fetches included; a probe
+still running then is cancelled and reports nothing."""
+
 _SKIP_THROTTLE = LogThrottle()  # one line per skipped device, not one per discovery
 _SCAN_KEY_REFUSED = (
     "the cloud refused this client's key identity after a new key exchange; "
@@ -155,6 +174,16 @@ class ModelStatus:
             and self.cloud_td_version is not None
             and self.cloud_td_version > self.bundled_td_version
         )
+
+
+def _ipv4_networks(networks: Iterable[object]) -> tuple[IPv4Network, ...]:
+    """``networks`` as a tuple; ValueError when an entry is no :class:`IPv4Network`."""
+    found: list[IPv4Network] = []
+    for network in networks:
+        if not isinstance(network, IPv4Network):
+            raise ValueError(f"local_networks takes IPv4Network entries, not {network!r}")
+        found.append(network)
+    return tuple(found)
 
 
 def _account_codes(devices: Sequence[CloudDevice]) -> tuple[str, ...]:
@@ -218,6 +247,7 @@ class EufySecurity:
         deduplicate: bool = True,
         cloud_state_refresh: float = CLOUD_STATE_REFRESH,
         max_sessions: int = DEFAULT_STATION_SESSIONS,
+        local_networks: Sequence[IPv4Network] | None = None,
         _cloud_factory: Callable[..., EufyCloudApi] | None = None,
         _discovery_port: int | None = None,
     ) -> None:
@@ -252,6 +282,16 @@ class EufySecurity:
         ``local_ports`` pins one local UDP port per station serial, so a firewall can
         admit each station's replies (see :mod:`.network`); stations not in it bind an
         ephemeral port. Two stations cannot share a pinned port (ValueError).
+
+        ``local_networks`` are this host's directly connected IPv4 networks (Home
+        Assistant's network adapters: each IPv4 address with its prefix), used instead
+        of reading the interfaces (:mod:`.p2p.netif`, Linux only). They decide which
+        punch-answered links count as ``"lan"``, the on-link punch grace, and
+        :attr:`~.network.PathWarning.LAN_REPLY_BLOCKED`; with neither (not Linux, no
+        ``local_networks``) there is no grace and no such warning. An empty list means
+        this host has no network to treat as on-link: no grace, no warning, and a
+        punched link counts as ``"rendezvous"`` (the interfaces are not read). An entry
+        that is no :class:`~ipaddress.IPv4Network` raises ValueError.
 
         Pass one ``claims`` to every account of a process so that a station shared
         between accounts is served by exactly one of them. Likewise pass one
@@ -290,6 +330,21 @@ class EufySecurity:
         device-list call for the account) while :meth:`async_start` runs; pushes update it
         in between.
 
+        Every station with rendezvous servers (the cloud's ``app_conn``) can also be
+        reached through them, as the eufy app connects: a station on another subnet
+        behind a stateful gateway, or off the LAN. A station reached on demand runs it
+        on every connect (it wakes the station); a held one beside LAN discovery from
+        the first attempt when its DSK is cached (no cloud call) or its last link came
+        through the servers, else once a LAN discovery attempt has failed. How each
+        station's last link came up is kept in the cache (``stations.<serial>.link_path``),
+        so it holds across restarts, with whether that link needed a punch because the
+        station's LAN reply was blocked (``stations.<serial>.lan_reply_blocked``, see
+        :attr:`~.network.PathWarning.LAN_REPLY_BLOCKED`). A link counts as rendezvous
+        only when the station answered from outside this host's own networks. It costs one DSK per station from
+        the cloud, cached until it expires. A station with no configured
+        address and no private cloud ``local_ip`` is also searched at the LAN address it
+        reports (:attr:`~.network.HostSource.DEVICE`).
+
         ``_cloud_factory`` and ``_discovery_port`` are private seams for
         :mod:`eufy_home_security.testing` only: the factory is called like
         :class:`EufyCloudApi`, and the port is the UDP port every station session
@@ -319,6 +374,7 @@ class EufySecurity:
         check_local_ports(local_ports or {})
         self._max_sessions = _session_budget(max_sessions)
         self._local_ports = dict(local_ports or {})
+        self._local_networks = None if local_networks is None else _ipv4_networks(local_networks)
         self._bus = EventBus()
         # One ring for the account, both channels; it outlives every session reconnect.
         self.deduplicator: EventDeduplicator | None = EventDeduplicator() if deduplicate else None
@@ -638,10 +694,14 @@ class EufySecurity:
                 expect_channels=station_channels(device, sub_devices),
                 block_aliases=station_block_aliases(device),
                 on_demand=connects_on_demand(serial),
-                wake_provider=self._wake_provider(device) if connects_on_demand(serial) else None,
+                wake_provider=self._wake_provider(device),
                 key_refresh=_CachedKeyRefreshLatch(self.cache, serial),
                 cloud_problems_reported=True,
                 max_sessions=self._max_sessions,
+                extra_hosts=extra_search_hosts(device, self._search_host(device)),
+                connect_path=self.cache.link_path(serial),
+                lan_reply_blocked=self.cache.lan_reply_blocked(serial),
+                local_networks=self._local_networks,
             )
             station = Station(
                 device,
@@ -655,8 +715,36 @@ class EufySecurity:
             station.apply_cloud_device(device)  # the cached snapshot, until a fresh one
             self.stations[serial] = station
             self._unsubs.append(station.subscribe(self._on_station_event))
+        await self._forget_link_paths({d.device_sn for d in candidates})
         self._report_stations_changed(first, built, candidates)
         return list(self.stations.values())
+
+    async def _forget_link_paths(self, listed: Collection[str]) -> None:
+        """Drop the kept link path of every station a whole device list (fetched now,
+        or the cache of one) no longer names; a list the cloud did not answer whole
+        (``"fallback"``, ``"unsent"``) drops none."""
+        if self.device_list_source not in ("fetched", "cache"):
+            return
+        dropped = [
+            serial
+            for serial in self.cache.station_serials()
+            if serial not in listed and self.cache.drop_link_path(serial)
+        ]
+        if dropped:
+            await self.cache.async_save()
+
+    def _note_link_path(self, serial: str) -> None:
+        """Keep how a built station's link came up and whether its LAN reply was blocked,
+        for its session after a restart (saved only when either changed)."""
+        station = self.stations.get(serial)
+        if station is None:
+            return
+        session = station.session
+        path = session.connect_path
+        if path is not None and self.cache.set_link_path(
+            serial, path, lan_reply_blocked=session.lan_reply_blocked
+        ):
+            self.cache.schedule_save()
 
     def _login_country_code(self) -> str | None:
         """The code of the country the account logs in with; None while unknown."""
@@ -792,19 +880,27 @@ class EufySecurity:
         """The settings listed from the cloud TD for ``product_code``; ``()`` for none."""
         return self._listed.get(product_code, ())
 
-    def _wake_provider(self, device: CloudDevice) -> WakeProvider:
-        """A :class:`~.p2p.session.WakeProvider` for a battery station: its rendezvous
-        servers (from the cloud entry) and a cached-or-fetched DSK. A cloud failure
-        becomes a ``CloudProblem`` and returns None, so a wake falls back to LAN discovery."""
+    def _wake_provider(self, device: CloudDevice, *, login: bool = True) -> WakeProvider:
+        """A :class:`~.p2p.session.WakeProvider` for a station's rendezvous connect (every
+        station; the session decides when it runs): its rendezvous servers (from the
+        cloud entry) and a cached-or-fetched DSK. None without servers, and with
+        ``cached_only`` None without a fresh cached DSK (no cloud call). A cloud failure
+        becomes a ``CloudProblem`` and returns None, so the connect falls back to LAN
+        discovery; a replaced session is raised (an on-demand station fails at once).
+        Without ``login`` the DSK fetch never logs in."""
         cloud, serial = self.cloud, device.device_sn
         servers = device.rendezvous_servers
 
-        async def provide() -> Wake | None:
+        async def provide(*, cached_only: bool = False) -> Wake | None:
             if not servers:
                 return None
             await self._ensure_cache_loaded()
+            if dsk := cloud.cached_dsk_key(serial):
+                return Wake(servers=servers, dsk=dsk)  # no cloud call: no success either
+            if cached_only:
+                return None
             try:
-                dsk = await cloud.async_get_dsk_key(serial)
+                dsk = await cloud.async_get_dsk_key(serial, login=login)
             except SessionReplacedError as err:
                 # No wake is possible until a human takes the session back: fail the
                 # connect now rather than after a LAN search a sleeping camera ignores.
@@ -964,13 +1060,30 @@ class EufySecurity:
     async def async_station_choices(
         self, *, timeout: float | None = None, port: int = DISCOVERY_PORT
     ) -> list[StationChoice]:
-        """Every station on the account, with its reach after one LAN probe.
+        """Every station on the account, with its reach after one LAN probe and, for
+        the mains stations it did not find, one rendezvous probe.
 
         For a setup step that asks which stations to include (see :mod:`.inclusion`).
         Builds nothing and opens no session; the device list comes from the cache
-        when there is one. Safe on a running account: the probe is the one of
+        when there is one. Safe on a running account: the LAN probe is the one of
         :meth:`async_probe_lan`, so a station with a connected session is never
-        searched and is reported local, at the session's host.
+        searched and is reported local, at the session's host (``rendezvous`` True
+        when its link came through the servers). A built station whose session is down
+        is not punched either (its own reconnect may be punching it): ``rendezvous`` is
+        True when its last link came through the servers, else None. A built station's
+        last link is the one of this run, or before its first one the path stored from
+        an earlier run.
+
+        A station that did not answer the LAN probe and lists rendezvous servers is
+        then punched through them (:meth:`~.p2p.transport.PPPPTransport.punch_probe`:
+        its first ``PUNCH_PKT`` is success, then a ``CLOSE``; no session), and
+        :attr:`~.inclusion.StationChoice.rendezvous` records the outcome. This needs
+        the station's DSK (one cached ``get_dsk_keys``, never a login); a cloud failure
+        is reported as a :class:`~.events.CloudProblem` and leaves that station's LAN
+        result. A station reached on demand is never probed this way: the punch would
+        wake a battery station. At most :data:`RENDEZVOUS_PROBE_CONCURRENCY` stations are
+        probed at a time, each for :data:`RENDEZVOUS_PROBE_TIMEOUT`, all within
+        :data:`RENDEZVOUS_PROBE_BUDGET`.
         """
         await self._ensure_cache_loaded()
         candidates, children, self.skipped_devices = _group(await self.cloud.async_get_devices())
@@ -983,26 +1096,92 @@ class EufySecurity:
             for device in candidates
         ]
         probed = await self._probe(paths, candidates, timeout=timeout, port=port)
+        punched = await self._probe_rendezvous(
+            [
+                device
+                for device, path in zip(candidates, probed, strict=True)
+                if not path.answered and device.device_sn not in self.stations
+            ]
+        )
+        for serial, station in self.stations.items():
+            if station.session.connect_path is ConnectPath.RENDEZVOUS:
+                punched[serial] = True
         return [
             StationChoice(
-                device=device, sub_devices=tuple(children.get(device.device_sn, ())), path=path
+                device=device,
+                sub_devices=tuple(children.get(device.device_sn, ())),
+                path=path,
+                rendezvous=punched.get(device.device_sn),
             )
             for device, path in zip(candidates, probed, strict=True)
         ]
+
+    async def _probe_rendezvous(self, devices: list[CloudDevice]) -> dict[str, bool | None]:
+        """Whether each of ``devices`` answers a punch through its rendezvous servers,
+        by serial; None for a station without servers or whose DSK cannot be fetched,
+        and a station reached on demand or still probed at the budget's end is left out
+        (see :meth:`async_station_choices`)."""
+        targets = [device for device in devices if not connects_on_demand(device.device_sn)]
+        if not targets:
+            return {}
+        limit = asyncio.Semaphore(RENDEZVOUS_PROBE_CONCURRENCY)
+
+        async def probe(device: CloudDevice) -> bool | None:
+            async with limit:
+                serial = redact_serial(device.device_sn)
+                try:
+                    wake = await self._wake_provider(device, login=False)()
+                except SessionReplacedError:
+                    wake = None  # reported as a CloudProblem by the provider
+                if wake is None:
+                    _LOGGER.debug("%s: no rendezvous probe (no servers or no DSK)", serial)
+                    return None
+                register_secret_bytes(wake.dsk)
+                transport = PPPPTransport(on_chunk=_ignore, on_lost=_ignore)
+                try:
+                    await transport.punch_probe(
+                        expected_did=Did.parse(device.p2p_did or ""),
+                        wake=wake,
+                        timeout=RENDEZVOUS_PROBE_TIMEOUT,
+                    )
+                except EufySecurityError as err:
+                    _LOGGER.debug("%s: rendezvous probe unanswered: %s", serial, err)
+                    return False
+                finally:
+                    transport.close(send_close=False)
+                _LOGGER.debug("%s: rendezvous probe answered", serial)
+                return True
+
+        tasks = {device.device_sn: asyncio.create_task(probe(device)) for device in targets}
+        pending: set[asyncio.Task[bool | None]] = set(tasks.values())
+        try:
+            _done, pending = await asyncio.wait(tasks.values(), timeout=RENDEZVOUS_PROBE_BUDGET)
+        finally:
+            # On the budget's end and on the caller's cancel alike: no probe outlives it.
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+        if pending:
+            _LOGGER.debug(
+                "%d rendezvous probe(s) cut off after %.0fs", len(pending), RENDEZVOUS_PROBE_BUDGET
+            )
+        return {serial: task.result() for serial, task in tasks.items() if task not in pending}
 
     async def async_probe_lan(
         self, *, timeout: float | None = None, port: int = DISCOVERY_PORT
     ) -> list[LanPath]:
         """Each built station's :class:`LanPath`, with one LAN discovery folded in.
 
-        Searches the broadcast address and every configured station address at once
-        and records where each station answered from. It opens no session and needs
+        Searches the broadcast address and every known station address at once (the
+        :attr:`~.network.LanPath.host`: configured, the cloud's, or the one the station
+        reports) and records where each station answered from. It opens no session and needs
         no cloud, so it suits a setup step (a pinned local port is not reused here:
         discovery binds an ephemeral one).
 
         Guarantee: a station with a connected session is never sent a LAN_SEARCH. It is
         reported from its session instead (answered, ``observed_ip`` = the session's
-        host), so the probe may run while the sessions are live. While any station of
+        host; ``answered`` None when that link needed a punch because its LAN reply was
+        blocked), so the probe may run while the sessions are live. While any station of
         the account is connected no broadcast is sent either: only the known addresses
         of the stations that are not connected are searched, so a station without a
         known address is found only while nothing is connected.
@@ -1055,7 +1234,12 @@ class EufySecurity:
         results = await asyncio.gather(*(search(target) for target in sorted(targets)))
         replies = [reply for found in results for reply in found]
         return [
-            replace(path, answered=True, observed_ip=live[path.serial].host)
+            # A link whose LAN reply was blocked proves no reply: report it unprobed.
+            replace(
+                path,
+                answered=None if path.lan_reply_blocked else True,
+                observed_ip=live[path.serial].host,
+            )
             if path.serial in live
             else with_discovery(path, device.p2p_did, replies)
             for path, device in zip(paths, devices, strict=True)
@@ -1287,6 +1471,8 @@ class EufySecurity:
             self.cache.schedule_save()
 
     def _on_station_event(self, event: Event) -> None:
+        if isinstance(event, ConnectionChanged) and event.connected:
+            self._note_link_path(event.station_sn)
         if isinstance(event, SecurityEvent):
             self._deliver(event)
             return
@@ -1811,6 +1997,10 @@ def _group(
         else:
             skip(device, "orphan")
     return stations, children, tuple(skipped)
+
+
+def _ignore(_value: object) -> None:
+    """A transport callback for a punch probe, which carries no session."""
 
 
 def _did_parses(did: str | None) -> bool:

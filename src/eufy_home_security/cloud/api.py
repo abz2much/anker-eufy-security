@@ -509,6 +509,8 @@ class EufyCloudApi:
         self._challenge_region: str | None = None
         """The scope whose login raised this instance's last unanswered challenge."""
         self._login_lock = asyncio.Lock()
+        self._dsk_fetches: dict[str, asyncio.Future[str]] = {}
+        """The DSK fetch in flight per station (see :meth:`async_get_dsk_key`)."""
         self._cipher_unavailable: dict[tuple[str, int], tuple[float, str | None, str]] = {}
         """(monotonic time, owner id source, owner id) of the last ``get_ciphers`` answer
         without a key per (station, cipher id), for the back-off. The source is None when
@@ -2528,38 +2530,98 @@ class EufyCloudApi:
     # ── device session key (DSK) ───────────────────────────────────────────
 
     async def async_get_dsk_key(
-        self, station_sn: str, *, refresh: bool = False, margin: float = DSK_REFRESH_MARGIN
+        self,
+        station_sn: str,
+        *,
+        refresh: bool = False,
+        margin: float = DSK_REFRESH_MARGIN,
+        login: bool = True,
     ) -> str:
         """The station's device session key (DSK), cached per station until it expires.
 
         A DSK wakes a battery station through its rendezvous servers (see
         :class:`~..p2p.session.StationSession`): the app fetches one per client and it
         lasts about an hour. The cache is used while at least ``margin`` seconds remain;
-        ``refresh`` (or a stale cache) fetches a fresh one and passes the old key as
-        ``invalid_dsk`` so the server rotates it.
+        after that a fresh key is fetched with an empty ``invalid_dsk``. ``refresh``
+        rejects the key cached when the call starts and fetches with it as
+        ``invalid_dsk`` so the server rotates it, unless a fetch already in flight brings
+        back another key.
+
+        One fetch per station runs at a time, and a caller arriving during it shares its
+        key (as soon as it is cached, before it is saved) or its error. A caller fetches
+        again after one it waited for only when the caller running it was cancelled
+        before the key was cached, or, with ``refresh``, when it brought back the
+        rejected key. A caller cancelled while it waits leaves the fetch running.
+
+        Without ``login`` nothing logs in (:meth:`_with_session`): no usable session
+        raises :class:`NoCachedSessionError`. A caller that may log in and waited for
+        such a fetch fetches again itself.
         """
-        cached = self._cache.dsk_key(station_sn)
-        stale = cached[0] if cached else ""
-        if not refresh and cached and cached[1] - time.time() > margin:
-            _LOGGER.debug(
-                "DSK for %s from the cache (expires in %.0fs): %s",
-                redact_serial(station_sn),
-                cached[1] - time.time(),
-                Secret(cached[0]),
+        known = self._cache.dsk_key(station_sn)
+        rejected = known[0] if refresh and known else None
+        while True:
+            if (pending := self._dsk_fetches.get(station_sn)) is not None:
+                # asyncio.wait neither cancels the shared future nor hands its error to
+                # the loop's exception handler when this caller is cancelled.
+                await asyncio.wait((pending,))
+                if pending.cancelled():
+                    continue  # the caller running it was cancelled: fetch again
+                if login and isinstance(pending.exception(), NoCachedSessionError):
+                    continue  # a fetch that would not log in: this caller may
+                key = pending.result()
+                if key != rejected:
+                    return key
+                continue
+            if not refresh and (fresh := self.cached_dsk_key(station_sn, margin=margin)):
+                return fresh
+            return await self._fetch_dsk_shared(station_sn, invalid_dsk=rejected or "", login=login)
+
+    async def _fetch_dsk_shared(self, station_sn: str, *, invalid_dsk: str, login: bool) -> str:
+        """Fetch and cache the station's DSK as its one fetch in flight, whose outcome
+        callers arriving meanwhile share (see :meth:`async_get_dsk_key`)."""
+        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        self._dsk_fetches[station_sn] = future
+        try:
+            key, expiration = await self._fetch_dsk(
+                station_sn, invalid_dsk=invalid_dsk, login=login
             )
-            return cached[0]
-        key, expiration = await self._fetch_dsk(station_sn, invalid_dsk=stale if refresh else "")
-        _LOGGER.debug(
-            "DSK for %s fetched (expires in %.0fs): %s",
-            redact_serial(station_sn),
-            expiration - time.time(),
-            Secret(key),
-        )
-        self._cache.set_dsk_key(station_sn, key, expiration)
+            _LOGGER.debug(
+                "DSK for %s fetched (expires in %.0fs): %s",
+                redact_serial(station_sn),
+                expiration - time.time(),
+                Secret(key),
+            )
+            self._cache.set_dsk_key(station_sn, key, expiration)
+        except Exception as err:
+            future.set_exception(err)
+            future.exception()  # marks it retrieved: a fetch nobody shared logs nothing
+            raise
+        else:
+            future.set_result(key)  # shared once cached, before the save can be cancelled
+        finally:
+            if not future.done():
+                future.cancel()  # cancelled: a caller waiting for it fetches again
+            del self._dsk_fetches[station_sn]
         await self._cache.async_save()
         return key
 
-    async def _fetch_dsk(self, station_sn: str, *, invalid_dsk: str) -> tuple[str, float]:
+    def cached_dsk_key(self, station_sn: str, *, margin: float = DSK_REFRESH_MARGIN) -> str | None:
+        """The station's cached DSK while at least ``margin`` seconds of it remain,
+        else None; no I/O (see :meth:`async_get_dsk_key`)."""
+        cached = self._cache.dsk_key(station_sn)
+        if cached is None or cached[1] - time.time() <= margin:
+            return None
+        _LOGGER.debug(
+            "DSK for %s from the cache (expires in %.0fs): %s",
+            redact_serial(station_sn),
+            cached[1] - time.time(),
+            Secret(cached[0]),
+        )
+        return cached[0]
+
+    async def _fetch_dsk(
+        self, station_sn: str, *, invalid_dsk: str, login: bool
+    ) -> tuple[str, float]:
         """Fetch the DSK and its expiration (epoch s) from ``get_dsk_keys``."""
         payload = {
             "device_dsks": [
@@ -2577,7 +2639,7 @@ class EufyCloudApi:
             )
             return data
 
-        data = await self._with_session(fetch, region)
+        data = await self._with_session(fetch, region, login=login)
         items = _mapping(data, const.DSK_KEYS_PATH).get("device_dsks")
         if not isinstance(items, list):
             raise ProtocolError(f"cloud response to {const.DSK_KEYS_PATH} has no device_dsks list")

@@ -40,6 +40,7 @@ from .cloud.const import (
 )
 from .cloud.models import REGION_KEY, CloudDevice, device_cache_entry
 from .devices.types import connects_on_demand
+from .p2p.transport import ConnectPath
 
 CACHE_VERSION = 2
 #: The public name of :data:`CACHE_VERSION`. A change without a migration from the
@@ -94,6 +95,11 @@ INSTALL_IDS_KEY: Final = "install_ids"
 _MIGRATED_VERSIONS: Final = (1,)
 # Top-level section of the session-replaced latch.
 _REPLACED = "replaced"
+# Per-station key of the last link path, and the values it is read as.
+_LINK_PATH = "link_path"
+# Per-station flag beside it: that link needed a punch because the LAN reply was blocked.
+_LAN_REPLY_BLOCKED = "lan_reply_blocked"
+_CONNECT_PATHS: Final = tuple(str(path) for path in ConnectPath)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -210,6 +216,8 @@ class SessionCache:
                                    "refresh_attempts": {"cipher": <epoch s>},
                                    "key_refresh": <epoch s>,
                                    "dsk": {"key": "…", "expiration": <epoch s>},
+                                   "link_path": "lan" | "rendezvous",
+                                   "lan_reply_blocked": true,
                                    "presets": {"<camera serial>": [{...}, …]}}},
          "refresh_attempts": {"owner": <epoch s>},
          "throttle": {"requests": <epoch s>, "login": {"<region>": <epoch s>},
@@ -498,6 +506,48 @@ class SessionCache:
 
     def set_station_cipher_id(self, serial: str, cipher_id: int) -> None:
         self.station(serial)["cipher_id"] = cipher_id
+
+    def link_path(self, serial: str) -> ConnectPath | None:
+        """How the last link to ``serial`` came up, as stored by :meth:`set_link_path`;
+        None when none is stored or the stored value is not a known path."""
+        stations = self._doc.get("stations")
+        entry = stations.get(serial) if isinstance(stations, dict) else None
+        value = entry.get(_LINK_PATH) if isinstance(entry, dict) else None
+        return ConnectPath(value) if value in _CONNECT_PATHS else None
+
+    def lan_reply_blocked(self, serial: str) -> bool:
+        """Whether the last link to ``serial`` needed a punch because the station's LAN
+        reply was blocked, as stored by :meth:`set_link_path`; only a stored ``true``
+        beside a known :meth:`link_path` counts."""
+        if self.link_path(serial) is None:
+            return False
+        return self._doc["stations"][serial].get(_LAN_REPLY_BLOCKED) is True
+
+    def set_link_path(
+        self, serial: str, path: ConnectPath, *, lan_reply_blocked: bool = False
+    ) -> bool:
+        """Store how the last link to ``serial`` came up and whether its LAN reply was
+        blocked; whether either changed."""
+        if self.link_path(serial) is path and self.lan_reply_blocked(serial) is lan_reply_blocked:
+            return False
+        entry = self.station(serial)
+        entry[_LINK_PATH] = str(path)
+        if lan_reply_blocked:
+            entry[_LAN_REPLY_BLOCKED] = True
+        else:
+            entry.pop(_LAN_REPLY_BLOCKED, None)
+        return True
+
+    def drop_link_path(self, serial: str) -> bool:
+        """Forget ``serial``'s last link path and its blocked-reply flag; whether either
+        was stored."""
+        stations = self._doc.get("stations")
+        entry = stations.get(serial) if isinstance(stations, dict) else None
+        if not isinstance(entry, dict):
+            return False
+        flag = entry.pop(_LAN_REPLY_BLOCKED, None)
+        path = entry.pop(_LINK_PATH, None)
+        return flag is not None or path is not None
 
     # ── device list ──────────────────────────────────────────────────────────
 

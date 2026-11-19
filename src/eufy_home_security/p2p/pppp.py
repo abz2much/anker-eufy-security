@@ -83,6 +83,9 @@ DSK_FIELD_LEN = 24
 #: The 4 constant bytes a P2P_REQ_DSK carries between the sockaddr and the DSK, as the app's
 #: wake request carries them (meaning unknown; the same in every request seen).
 _P2P_REQ_DSK_TAIL = bytes([0x02, 0x05, 0x01, 0x05])
+#: The length of a PPPP ``sockaddr_in`` (:func:`encode_sockaddr`).
+SOCKADDR_LEN = 16
+_AF_INET = 2
 
 
 def encode_sockaddr(ip: str, port: int) -> bytes:
@@ -93,7 +96,59 @@ def encode_sockaddr(ip: str, port: int) -> bytes:
     station knows where to punch (see :func:`encode_p2p_req_dsk`).
     """
     packed = ipaddress.IPv4Address(ip).packed
-    return struct.pack(">H", 2) + struct.pack("<H", port) + packed[::-1] + bytes(8)
+    return struct.pack(">H", _AF_INET) + struct.pack("<H", port) + packed[::-1] + bytes(8)
+
+
+#: The IPv4 networks :func:`is_lan_address` accepts: the private ranges (RFC 1918), the
+#: shared address space (RFC 6598) some ISP and mobile routers number their LAN from,
+#: and the benchmarking (RFC 2544) and documentation (RFC 5737) ranges, which no router
+#: forwards to the internet.
+LAN_NETWORKS = tuple(
+    ipaddress.IPv4Network(net)
+    for net in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "198.18.0.0/15",
+        "192.0.2.0/24",
+        "198.51.100.0/24",
+        "203.0.113.0/24",
+    )
+)
+
+
+def is_lan_address(ip: str) -> bool:
+    """Whether ``ip`` is an IPv4 address in one of :data:`LAN_NETWORKS`. Every other
+    address is none: public ones, ``0.0.0.0/8``, loopback, link-local, multicast,
+    reserved and the limited broadcast. Discovery is IPv4 only, so an IPv6 address is
+    never one."""
+    try:
+        addr = ipaddress.IPv4Address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in LAN_NETWORKS)
+
+
+def decode_sockaddr(data: bytes) -> tuple[str, int]:
+    """``(ip, port)`` from the first 16 bytes of ``data``, laid out as
+    :func:`encode_sockaddr` writes them: a ``PUNCH_TO`` names an address to punch this
+    way. Raises :class:`ProtocolError` when fewer than 16 bytes arrive or the family is
+    not IPv4."""
+    if len(data) < SOCKADDR_LEN:
+        raise ProtocolError(f"sockaddr needs {SOCKADDR_LEN} bytes, got {len(data)}")
+    family = struct.unpack_from(">H", data)[0]
+    if family != _AF_INET:
+        raise ProtocolError(f"sockaddr family 0x{family:04x} is not IPv4")
+    port = struct.unpack_from("<H", data, 2)[0]
+    return str(ipaddress.IPv4Address(bytes(data[4:8])[::-1])), port
+
+
+def encode_p2p_req(did_struct: bytes, ip: str, port: int) -> bytes:
+    """A ``P2P_REQ`` (0x20) payload: the 20-byte DID struct and the caller's
+    :func:`encode_sockaddr`. The client sends it to each rendezvous server's
+    :data:`~.transport.P2P_REQ_PORTS` on the first ``PUNCH_TO``, as the eufy app does."""
+    return did_struct + encode_sockaddr(ip, port)
 
 
 def encode_p2p_req_dsk(did_struct: bytes, ip: str, port: int, dsk: str) -> bytes:
@@ -108,10 +163,7 @@ def encode_p2p_req_dsk(did_struct: bytes, ip: str, port: int, dsk: str) -> bytes
     if len(key) > DSK_FIELD_LEN:
         raise ProtocolError(f"DSK too long for a P2P_REQ_DSK: {len(key)} bytes")
     return (
-        did_struct
-        + encode_sockaddr(ip, port)
-        + _P2P_REQ_DSK_TAIL
-        + key.ljust(DSK_FIELD_LEN, b"\x00")
+        encode_p2p_req(did_struct, ip, port) + _P2P_REQ_DSK_TAIL + key.ljust(DSK_FIELD_LEN, b"\x00")
     )
 
 

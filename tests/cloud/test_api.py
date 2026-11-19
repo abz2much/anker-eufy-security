@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import logging
 import time
@@ -30,6 +31,7 @@ from eufy_home_security.exceptions import (
     LoginChallengeError,
     LoginLimitedError,
     LoginVerificationError,
+    NoCachedSessionError,
     ProtocolError,
     RateLimitedError,
     RefreshCooldownError,
@@ -2164,6 +2166,362 @@ async def test_empty_dsk_response_is_an_empty_response_error(
             await api.async_login()
             with pytest.raises(EmptyResponseError):
                 await api.async_get_dsk_key(SYNTHETIC.station_sn)
+
+
+class DskFetches:
+    """Stands in for ``EufyCloudApi._fetch_dsk``: records each request's station and
+    ``invalid_dsk``, holds it until ``release`` is set (when given), then answers
+    ``key{n}`` for the n-th request, or raises the next of ``errors`` (each once), else
+    ``error``."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.sent: list[tuple[str, str]] = []
+        self.logins: list[bool] = []
+        """Each request's ``login``, in order."""
+        self.started = asyncio.Event()
+        self.release: dict[str, asyncio.Event] = {}
+        self.keys: list[str] = []
+        self.errors: list[Exception] = []
+        self.error: Exception | None = None
+
+        async def fetch(
+            api: EufyCloudApi, station_sn: str, *, invalid_dsk: str, login: bool
+        ) -> Any:
+            self.sent.append((station_sn, invalid_dsk))
+            self.logins.append(login)
+            number = len(self.sent)
+            self.started.set()
+            if (gate := self.release.get(station_sn)) is not None:
+                await gate.wait()
+            await asyncio.sleep(0)
+            if self.errors:
+                raise self.errors.pop(0)
+            if self.error is not None:
+                raise self.error
+            key = self.keys.pop(0) if self.keys else f"key{number}"
+            return key, time.time() + 3600
+
+        monkeypatch.setattr(EufyCloudApi, "_fetch_dsk", fetch)
+
+
+async def test_concurrent_dsk_callers_share_one_fetch_and_its_error(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """Callers asking while a station's fetch runs share its outcome: one request,
+    and a failure reaches every caller instead of each running its own fetch."""
+    fetches = DskFetches(monkeypatch)
+    fetches.error = CommunicationError("timed out")
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        results = await asyncio.gather(
+            *(api.async_get_dsk_key(SYNTHETIC.station_sn) for _ in range(3)),
+            return_exceptions=True,
+        )
+        assert [type(result) for result in results] == [CommunicationError] * 3
+        assert len(fetches.sent) == 1
+        fetches.error = None
+        assert await api.async_get_dsk_key(SYNTHETIC.station_sn) == "key2"  # not latched
+
+
+async def test_dsk_fetches_of_two_stations_run_at_once(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """A slow fetch for one station does not hold another station's fetch."""
+    fetches = DskFetches(monkeypatch)
+    fetches.release[SYNTHETIC.station_sn] = asyncio.Event()
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        held = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await fetches.started.wait()
+        other = await asyncio.wait_for(api.async_get_dsk_key(SYNTHETIC.camera_sn), 1)
+        assert not held.done()
+        fetches.release[SYNTHETIC.station_sn].set()
+        assert (await held, other) == ("key1", "key2")
+
+
+async def test_a_dsk_fetch_without_login_never_logs_in(
+    fake_mega: FakeMega, cache: SessionCache
+) -> None:
+    """No session: refused before sending; an expired one: no login, the token kept."""
+    fake_mega.dsk_objects = [
+        {"device_sn": SYNTHETIC.station_sn, "dsk_key": "k", "expiration": time.time() + 3600}
+    ]
+    with aioresponses() as mock:
+        fake_mega.install(mock)
+        async with aiohttp.ClientSession() as session:
+            api = _api(session, cache)
+            await cache.async_load()
+            with pytest.raises(NoCachedSessionError):
+                await api.async_get_dsk_key(SYNTHETIC.station_sn, login=False)
+            assert fake_mega.calls == []
+            await api.async_login()
+            fake_mega.code_once["dsk"] = int(const.CloudCode.SESSION_TIMEOUT)
+            with pytest.raises(NoCachedSessionError):
+                await api.async_get_dsk_key(SYNTHETIC.station_sn, login=False)
+            assert await api.async_get_dsk_key(SYNTHETIC.station_sn, login=False) == "k"
+    assert fake_mega.login_calls == 1
+
+
+@pytest.mark.parametrize("login", [True, False])
+async def test_a_caller_that_may_log_in_fetches_again_after_a_shared_fetch_that_may_not(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache, login: bool
+) -> None:
+    """A fetch started with ``login=False`` that found no session is no answer for a
+    caller allowed to log in: it fetches again with a login. One that may not log in
+    either shares the refusal."""
+    fetches = DskFetches(monkeypatch)
+    fetches.errors = [NoCachedSessionError("no session")]
+    gate = fetches.release[SYNTHETIC.station_sn] = asyncio.Event()
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        first = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn, login=False))
+        await fetches.started.wait()
+        second = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn, login=login))
+        await asyncio.sleep(0)
+        gate.set()
+        results = await asyncio.gather(first, second, return_exceptions=True)
+    assert isinstance(results[0], NoCachedSessionError)
+    if login:
+        assert results[1] == "key2"
+        assert fetches.logins == [False, True]
+    else:
+        assert isinstance(results[1], NoCachedSessionError)
+        assert fetches.logins == [False]
+
+
+async def test_a_cancelled_dsk_fetch_is_redone_by_a_waiting_caller(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """The caller running the fetch is cancelled: a caller that waited for it fetches
+    again rather than failing with the other caller's cancellation."""
+    fetches = DskFetches(monkeypatch)
+    gate = fetches.release[SYNTHETIC.station_sn] = asyncio.Event()
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        first = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await fetches.started.wait()
+        second = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await asyncio.sleep(0)
+        first.cancel()
+        await asyncio.sleep(0)
+        gate.set()
+        assert await asyncio.wait_for(second, 1) == "key2"
+        assert first.cancelled()
+        assert len(fetches.sent) == 2
+
+
+async def test_a_cancelled_waiter_leaves_the_dsk_fetch_running(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """A caller cancelled while it waits for another's fetch ends cancelled; the
+    fetch goes on for the caller that started it."""
+    fetches = DskFetches(monkeypatch)
+    gate = fetches.release[SYNTHETIC.station_sn] = asyncio.Event()
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        first = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await fetches.started.wait()
+        waiter = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await asyncio.sleep(0)
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        gate.set()
+        assert await first == "key1"
+        assert len(fetches.sent) == 1
+
+
+async def test_a_waiter_cancelled_with_the_fetching_caller_ends_cancelled(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """Cancelled in the same tick as the caller running the fetch, a waiting caller
+    ends cancelled instead of starting a fetch of its own."""
+    fetches = DskFetches(monkeypatch)
+    fetches.release[SYNTHETIC.station_sn] = asyncio.Event()
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        first = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await fetches.started.wait()
+        waiter = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await asyncio.sleep(0)
+        first.cancel()
+        waiter.cancel()
+        for task in (first, waiter):
+            with pytest.raises(asyncio.CancelledError):
+                await task
+    assert len(fetches.sent) == 1
+
+
+async def test_a_waiter_cancelled_after_the_fetch_was_dropped_ends_cancelled(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """Cancelled after the caller running the fetch has dropped it but before it
+    resumes, a waiting caller ends cancelled instead of starting a fetch of its own."""
+    fetches = DskFetches(monkeypatch)
+    fetches.release[SYNTHETIC.station_sn] = asyncio.Event()
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        first = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await fetches.started.wait()
+        waiter = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await asyncio.sleep(0)
+        first.cancel()
+        await asyncio.sleep(0)
+        assert first.done()
+        assert not waiter.done()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(waiter, 1)
+    assert len(fetches.sent) == 1
+
+
+async def test_a_shared_dsk_failure_after_a_waiter_left_reaches_no_loop_handler(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """A waiter cancelled before the shared fetch fails leaves nothing for the event
+    loop's exception handler (Home Assistant logs those as errors)."""
+    fetches = DskFetches(monkeypatch)
+    gate = fetches.release[SYNTHETIC.station_sn] = asyncio.Event()
+    fetches.error = CommunicationError("timed out")
+    loop = asyncio.get_running_loop()
+    reported: list[dict[str, Any]] = []
+    loop.set_exception_handler(lambda _loop, context: reported.append(context))
+    try:
+        async with aiohttp.ClientSession() as session:
+            api = _api(session, cache)
+            first = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+            await fetches.started.wait()
+            waiter = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+            await asyncio.sleep(0)
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            gate.set()
+            with pytest.raises(CommunicationError):
+                await first
+            for _ in range(3):
+                await asyncio.sleep(0)
+            gc.collect()
+    finally:
+        loop.set_exception_handler(None)
+    assert reported == []
+
+
+async def test_a_fetched_dsk_is_shared_even_when_its_caller_is_cancelled_saving_it(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """The key is handed to waiting callers once it is cached, before the save: a
+    caller cancelled during the save costs no second fetch."""
+    fetches = DskFetches(monkeypatch)
+    gate = fetches.release[SYNTHETIC.station_sn] = asyncio.Event()
+    saving = asyncio.Event()
+    hold = asyncio.Event()
+
+    async def slow_save() -> None:
+        saving.set()
+        await hold.wait()
+
+    monkeypatch.setattr(cache, "async_save", slow_save)
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        first = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await fetches.started.wait()
+        waiter = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn, refresh=True))
+        await asyncio.sleep(0)
+        gate.set()
+        await saving.wait()
+        first.cancel()
+        assert await asyncio.wait_for(waiter, 1) == "key1"
+        with pytest.raises(asyncio.CancelledError):
+            await first
+    assert len(fetches.sent) == 1
+
+
+async def test_a_fetched_dsk_is_saved_to_the_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    DskFetches(monkeypatch)
+    store = MemoryStore()
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, SessionCache(store, SYNTHETIC.email))
+        await api.async_get_dsk_key(SYNTHETIC.station_sn)
+    reloaded = SessionCache(store, SYNTHETIC.email)
+    await reloaded.async_load()
+    saved = reloaded.dsk_key(SYNTHETIC.station_sn)
+    assert saved is not None
+    assert saved[0] == "key1"
+
+
+async def test_a_failed_dsk_fetch_nobody_shared_logs_nothing(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache, caplog: pytest.LogCaptureFixture
+) -> None:
+    fetches = DskFetches(monkeypatch)
+    fetches.error = CommunicationError("timed out")
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        with pytest.raises(CommunicationError):
+            await api.async_get_dsk_key(SYNTHETIC.station_sn)
+    gc.collect()
+    assert not [record for record in caplog.records if record.name == "asyncio"]
+
+
+async def test_a_stale_dsk_is_replaced_without_naming_it_invalid(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """A cached key inside the margin is fetched anew with an empty ``invalid_dsk``:
+    only ``refresh`` asks the server to rotate the key."""
+    fetches = DskFetches(monkeypatch)
+    cache.set_dsk_key(SYNTHETIC.station_sn, "old", time.time() + 60)
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        assert await api.async_get_dsk_key(SYNTHETIC.station_sn) == "key1"
+    assert fetches.sent == [(SYNTHETIC.station_sn, "")]
+
+
+async def test_concurrent_refreshes_rotate_the_rejected_key_once(
+    monkeypatch: pytest.MonkeyPatch, cache: SessionCache
+) -> None:
+    """Two callers refreshing at once both reject the cached key: one request names
+    it invalid, and neither names the key the other just fetched."""
+    fetches = DskFetches(monkeypatch)
+    cache.set_dsk_key(SYNTHETIC.station_sn, "old", time.time() + 3600)
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        keys = await asyncio.gather(
+            *(api.async_get_dsk_key(SYNTHETIC.station_sn, refresh=True) for _ in range(2))
+        )
+    assert keys == ["key1", "key1"]
+    assert fetches.sent == [(SYNTHETIC.station_sn, "old")]
+
+
+@pytest.mark.parametrize(
+    ("answers", "sent", "key"),
+    [
+        (["new"], [""], "new"),
+        (["old", "new"], ["", "old"], "new"),
+    ],
+    ids=["fresh-key-shared", "same-key-rotated"],
+)
+async def test_a_refresh_during_a_plain_fetch_rotates_only_the_rejected_key(
+    monkeypatch: pytest.MonkeyPatch,
+    cache: SessionCache,
+    answers: list[str],
+    sent: list[str],
+    key: str,
+) -> None:
+    """A refresh asked while a plain fetch of a stale key runs takes that fetch's key
+    when it differs from the one it rejects, else rotates the rejected key."""
+    fetches = DskFetches(monkeypatch)
+    fetches.keys = list(answers)
+    gate = fetches.release[SYNTHETIC.station_sn] = asyncio.Event()
+    cache.set_dsk_key(SYNTHETIC.station_sn, "old", time.time() + 60)
+    async with aiohttp.ClientSession() as session:
+        api = _api(session, cache)
+        plain = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn))
+        await fetches.started.wait()
+        refresh = asyncio.create_task(api.async_get_dsk_key(SYNTHETIC.station_sn, refresh=True))
+        await asyncio.sleep(0)
+        gate.set()
+        assert (await plain, await refresh) == (answers[0], key)
+    assert fetches.sent == [(SYNTHETIC.station_sn, invalid) for invalid in sent]
 
 
 # ── firmware (OTA) ───────────────────────────────────────────────────────────

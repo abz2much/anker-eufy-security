@@ -121,7 +121,7 @@ def test_drw_ack_round_trip(channel: int, indices: list[int]) -> None:
 @given(data=st.binary(max_size=64))
 @settings(max_examples=200)
 def test_decoders_only_raise_protocol_error(data: bytes) -> None:
-    for fn in (decode_packet, decode_drw, decode_drw_ack):
+    for fn in (decode_packet, decode_drw, decode_drw_ack, pppp.decode_sockaddr):
         with contextlib.suppress(ProtocolError):
             fn(data)
 
@@ -147,6 +147,80 @@ def test_encode_p2p_req_dsk_rejects_an_oversize_dsk() -> None:
     did = Did.parse("EUPRAMA-123456-ABCDE")
     with pytest.raises(ProtocolError):
         pppp.encode_p2p_req_dsk(did.to_struct(), "203.0.113.5", 1, "x" * (pppp.DSK_FIELD_LEN + 1))
+
+
+def test_encode_p2p_req_is_the_did_and_the_sockaddr() -> None:
+    did = Did.parse("EUPRAMA-123456-ABCDE")
+    body = pppp.encode_p2p_req(did.to_struct(), "203.0.113.5", 15238)
+    assert body == did.to_struct() + pppp.encode_sockaddr("203.0.113.5", 15238)
+
+
+def test_decode_sockaddr_reads_what_encode_sockaddr_writes() -> None:
+    raw = pppp.encode_sockaddr("203.0.113.5", 15238)
+    assert pppp.decode_sockaddr(raw) == ("203.0.113.5", 15238)
+    # A PUNCH_TO body may carry bytes after the 16-byte sockaddr.
+    assert pppp.decode_sockaddr(raw + b"\x01\x02") == ("203.0.113.5", 15238)
+
+
+@pytest.mark.parametrize(
+    ("data", "why"),
+    [
+        (pppp.encode_sockaddr("203.0.113.5", 1)[:15], "short"),
+        (b"\x00\x0a" + pppp.encode_sockaddr("203.0.113.5", 1)[2:], "not IPv4"),
+        (b"", "empty"),
+    ],
+)
+def test_decode_sockaddr_rejects_what_is_not_an_ipv4_sockaddr(data: bytes, why: str) -> None:
+    with pytest.raises(ProtocolError):
+        pppp.decode_sockaddr(data)
+
+
+def test_decode_sockaddr_accepts_exactly_sixteen_bytes() -> None:
+    raw = pppp.encode_sockaddr("0.0.0.0", 32108)  # noqa: S104 - a PUNCH_TO's empty address
+    assert len(raw) == 16
+    assert pppp.decode_sockaddr(raw) == ("0.0.0.0", 32108)  # noqa: S104
+
+
+@pytest.mark.parametrize(
+    ("ip", "lan"),
+    [
+        # RFC 1918, edges included
+        ("10.0.0.1", True),
+        ("10.255.255.254", True),
+        ("172.16.0.1", True),
+        ("172.31.255.254", True),
+        ("172.32.0.1", False),
+        ("192.168.0.1", True),
+        # shared address space (RFC 6598), edges included
+        ("100.64.0.0", True),
+        ("100.127.255.255", True),
+        ("100.63.255.255", False),
+        ("100.128.0.0", False),
+        # benchmarking (RFC 2544) and documentation (RFC 5737) ranges
+        ("198.18.0.1", True),
+        ("198.19.255.254", True),
+        ("192.0.2.5", True),
+        ("198.51.100.5", True),
+        ("203.0.113.5", True),
+        # no LAN host
+        ("0.0.0.0", False),  # noqa: S104 - names no host
+        ("0.1.2.3", False),  # "this network"
+        ("127.0.0.1", False),
+        ("169.254.1.1", False),
+        ("192.0.0.8", False),  # IETF protocol assignments
+        ("192.0.0.9", False),
+        ("192.88.99.9", False),  # global
+        ("224.0.0.251", False),
+        ("240.0.0.1", False),
+        ("255.255.255.255", False),
+        ("fd00::1", False),  # IPv6: discovery is IPv4 only
+        ("::ffff:192.168.1.2", False),
+        ("not an address", False),
+        ("", False),
+    ],
+)
+def test_which_addresses_are_lan_addresses(ip: str, lan: bool) -> None:
+    assert pppp.is_lan_address(ip) is lan
 
 
 def test_decode_init_string_round_trips_through_the_app_transform() -> None:

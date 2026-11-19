@@ -43,10 +43,11 @@ import logging
 import os
 import time
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from ipaddress import IPv4Network
 from types import MappingProxyType
 from typing import Any, Protocol, cast
 
@@ -172,10 +173,11 @@ from ..messages import (
     tone_file_payload,
 )
 from ..mode_actions import CMD_SET_ALL_ACTION, ModeTable
+from ..netif import async_local_networks
 from ..notify import decode_camera_push, stamped_accounts
 from ..param_notify import ParamNotify, decode_param_notify
 from ..params import ParamDump
-from ..pppp import DISCOVERY_PORT, DrwChunk
+from ..pppp import DISCOVERY_PORT, DrwChunk, is_lan_address
 from ..storage_info import (
     CMD_HUB_STORAGE,
     CMD_SD_INFO,
@@ -189,7 +191,7 @@ from ..storage_info import (
     storage_query_payload,
     storage_record,
 )
-from ..transport import PPPPTransport, SilentLinkError, StationClosedLinkError, Wake
+from ..transport import ConnectPath, PPPPTransport, SilentLinkError, StationClosedLinkError, Wake
 from ..xzyh import Frame, FrameCipher, FrameType, StreamDecoder, encode_frame
 from .budget import SessionBudget
 from .core import _RECORDING_COMMANDS, Inbound, Matcher, _receipt_error, _rejection
@@ -367,12 +369,25 @@ class P2PCredentials:
     rsa_private_key: str | None = None
 
 
-class WakeProvider(Protocol):
-    """Supplies the :class:`~..transport.Wake` for a battery station (its rendezvous
-    servers and a device session key), or None when it cannot be built (no DSK yet, a
-    cloud outage). Called before each connection attempt of an on-demand session."""
+def _learns_host(peer: str, searched: Collection[str]) -> bool:
+    """Whether a link's peer address becomes the host the next discovery searches: a
+    LAN address (:func:`~..pppp.is_lan_address`), or one in ``searched`` (the hosts
+    discovery already searches by unicast). A public peer is the station's router,
+    which no ``LAN_SEARCH`` should go to unless it was configured."""
+    return is_lan_address(peer) or peer in searched
 
-    async def __call__(self) -> Wake | None: ...
+
+class WakeProvider(Protocol):
+    """Supplies the :class:`~..transport.Wake` for a rendezvous connect (its rendezvous
+    servers and a device session key), or None when it cannot be built (no DSK yet, a
+    cloud outage). Called before each connection attempt.
+
+    With ``cached_only`` it answers without a cloud call: the wake when a fresh DSK is
+    already held, else None (never a fetch). A held station's session asks so when the
+    rendezvous is optional (:meth:`StationSession._rendezvous_on`).
+    """
+
+    async def __call__(self, *, cached_only: bool = False) -> Wake | None: ...
 
 
 class CredentialProvider(Protocol):
@@ -481,6 +496,10 @@ class StationSession:
         key_refresh: KeyRefreshLatch | None = None,
         cloud_problems_reported: bool = False,
         max_sessions: int = DEFAULT_STATION_SESSIONS,
+        extra_hosts: Sequence[str] = (),
+        connect_path: ConnectPath | None = None,
+        lan_reply_blocked: bool = False,
+        local_networks: Sequence[IPv4Network] | None = None,
     ) -> None:
         # max_sessions: see the max_sessions property.
         # expect_channels: the paired sub-devices' channels, used by every parameter
@@ -489,6 +508,12 @@ class StationSession:
         # block under 255 and its channel: params.standalone_aliases).
         # on_demand: never hold the session (a battery station): async_start connects
         # nothing, nothing reconnects, and a link idle for idle_close seconds is closed.
+        # wake_provider: the rendezvous connect's material (see _rendezvous_on).
+        # connect_path: how the last link came up, also one of an earlier run.
+        # lan_reply_blocked: whether that link needed the punch (see lan_reply_blocked).
+        # local_networks: this host's directly connected networks, used instead of
+        # reading the interfaces (netif) when given.
+        # extra_hosts: searched by unicast beside the host (or broadcast).
         # key_refresh: where the stale-key latch lives (in memory when None).
         # cloud_problems_reported: the owner delivers cloud errors as CloudProblem, so
         # ConnectionChanged carries only their cause.
@@ -504,6 +529,10 @@ class StationSession:
         self._cloud_problems_reported = cloud_problems_reported
         self._host = host
         self._search_host = host
+        self._extra_hosts = tuple(extra_hosts)
+        self._connect_path = connect_path
+        self._lan_reply_blocked = lan_reply_blocked
+        self._local_networks = None if local_networks is None else tuple(local_networks)
         self._expected_did = Did.parse(did) if isinstance(did, str) else did
         # The static key slices the id's text as the cloud lists it (see static_key).
         self._did_text = did if isinstance(did, str) else None
@@ -707,6 +736,27 @@ class StationSession:
         return self._search_host
 
     @property
+    def extra_hosts(self) -> tuple[str, ...]:
+        """Addresses discovery also searches by unicast."""
+        return self._extra_hosts
+
+    @property
+    def connect_path(self) -> ConnectPath | None:
+        """How the current or last link was set up (before this session's first link:
+        the ``connect_path`` it was built with); None when unknown."""
+        return self._connect_path
+
+    @property
+    def lan_reply_blocked(self) -> bool:
+        """Whether the current or last link came from a punch toward the station's
+        address in this host's directly connected networks after its LAN search went
+        unanswered for the on-link grace (:attr:`~..transport.PPPPTransport.lan_reply_blocked`):
+        the station is on this host's network, but a firewall drops its LAN replies, so
+        each connect needs its rendezvous servers. Each link sets it; before the first,
+        the ``lan_reply_blocked`` the session was built with."""
+        return self._lan_reply_blocked
+
+    @property
     def local_port(self) -> int:
         """The pinned local UDP port; 0 binds an ephemeral one per session."""
         return self._local_port
@@ -883,6 +933,9 @@ class StationSession:
             connected=self.announced,
             connects=self._health.connects,
             reconnects=max(self._health.connects - 1, 0),
+            connect_path=None if self._connect_path is None else str(self._connect_path),
+            connects_by_path=dict(self._health.connects_by_path),
+            lan_reply_blocked=self._lan_reply_blocked,
             handshake_failures=self._health.handshake_failures,
             key_refreshes=self._health.key_refreshes,
             last_error=self._last_error_name,
@@ -2381,8 +2434,13 @@ class StationSession:
             port=self._port,
             local_port=0,
             did=self._did or self._expected_did,
+            wake_provider=self._wake_provider,
             key_refresh=self._key_refresh,
             cloud_problems_reported=self._cloud_problems_reported,
+            extra_hosts=self._extra_hosts,
+            connect_path=self._connect_path,
+            lan_reply_blocked=self._lan_reply_blocked,
+            local_networks=self._local_networks,
         )
 
     def _media_waits(self) -> MediaWaits:
@@ -2614,20 +2672,48 @@ class StationSession:
 
     # ── connection internals ─────────────────────────────────────────────────
 
-    async def _wake(self) -> Wake | None:
-        """The wake for this connection attempt, or None when it cannot be built.
+    def _rendezvous_on(self, attempt: int) -> bool:
+        """Whether discovery attempt ``attempt`` (from 1) runs the rendezvous connect even
+        when its DSK must be fetched from the cloud.
+
+        An on-demand station runs it on every attempt: it is what wakes the station.
+        A held station runs it once LAN discovery has failed an attempt, or from the
+        first attempt when its last link came through it or needed a punch because its
+        LAN reply was blocked. Otherwise the attempt runs it
+        only with a DSK the provider already holds (``cached_only``), so a station the
+        LAN reaches costs no cloud call. The eufy app runs both from the start; the
+        library does so whenever that needs no cloud call. The LAN search runs on every
+        attempt.
+        """
+        return (
+            self.on_demand
+            or attempt > 1
+            or self._connect_path is ConnectPath.RENDEZVOUS
+            or self._lan_reply_blocked
+        )
+
+    async def _wake(self, *, cached_only: bool) -> Wake | None:
+        """The rendezvous material for this connection attempt, or None when it cannot
+        be built (with ``cached_only``: when it would need a cloud call).
 
         A failure to fetch the DSK (a cloud outage) is not fatal: discovery falls back
         to a plain ``LAN_SEARCH``, which still finds the station if it happens to be awake.
-        A :class:`SessionReplacedError` is: it is raised at once, since no wake can be
-        built until someone takes the cloud session back.
+        A :class:`SessionReplacedError` is fatal for an on-demand station: it is raised
+        at once, since no wake can be built until someone takes the cloud session back.
+        A held station searches the LAN on.
         """
         if self._wake_provider is None:
             return None
         try:
-            wake = await self._wake_provider()
+            wake = await self._wake_provider(cached_only=cached_only)
         except SessionReplacedError:
-            raise
+            if self.on_demand:
+                raise
+            _LOGGER.debug(
+                "%s: no rendezvous (the cloud session was replaced); LAN discovery only",
+                self._log_name,
+            )
+            return None
         except EufySecurityError as err:
             _LOGGER.debug(
                 "%s: no wake material (%s); trying LAN discovery only", self._log_name, err
@@ -2635,7 +2721,19 @@ class StationSession:
             return None
         if wake is not None:
             register_secret_bytes(wake.dsk)
+        elif cached_only:
+            _LOGGER.debug(
+                "%s: LAN discovery only on this attempt (no rendezvous servers, or no DSK held)",
+                self._log_name,
+            )
         return wake
+
+    async def _host_networks(self) -> Sequence[IPv4Network] | None:
+        """This host's directly connected networks: the ones the session was given,
+        else read from the interfaces (off the event loop); None when unknown."""
+        if self._local_networks is not None:
+            return self._local_networks
+        return await async_local_networks()
 
     async def _establish(self, creds: P2PCredentials | None) -> P2PCredentials:
         """Connect and unwrap the session key; returns the credentials that unwrapped it.
@@ -2659,7 +2757,9 @@ class StationSession:
                 Address(self._host or "broadcast"),
                 self._local_port or "ephemeral",
             )
-            wake = await self._wake() if self.on_demand else None
+            wake = await self._wake(cached_only=not self._rendezvous_on(attempt))
+            # A punch answer is classified by this host's networks (see PPPPTransport.connect).
+            networks = None if wake is None else await self._host_networks()
             transport = PPPPTransport(on_chunk=self._on_chunk, on_lost=self._on_lost)
             try:
                 did = await transport.connect(
@@ -2669,6 +2769,9 @@ class StationSession:
                     expected_did=self._expected_did,
                     timeout=DISCOVERY_TIMEOUT,
                     wake=wake,
+                    extra_hosts=self._extra_hosts,
+                    local_networks=networks,
+                    on_link_grace=not self.on_demand,
                 )
             except StationUnreachableError as err:
                 last_error = err
@@ -2695,7 +2798,11 @@ class StationSession:
         self._links += 1
         self._did = did
         self._keys.static_key = ecb_key
-        if transport.peer is not None:
+        path = transport.path or ConnectPath.LAN
+        self._connect_path = path
+        self._lan_reply_blocked = transport.lan_reply_blocked
+        searched = [host for host in (self._search_host, *self._extra_hosts) if host]
+        if transport.peer is not None and _learns_host(transport.peer[0], searched):
             self._host = transport.peer[0]
         self._decoders.clear()
         self._results_due.clear()
@@ -2760,6 +2867,7 @@ class StationSession:
         else:
             self._keys.session_key = session_key
         self._health.connects += 1
+        self._health.connects_by_path[str(path)] += 1
         self._creds = creds
         self._account_mismatch_reported = False  # a new connection may report it again
         _LOGGER.debug(
@@ -2769,7 +2877,13 @@ class StationSession:
             Secret(session_key),
             " (the static key)" if self.static_key_session else "",
         )
-        _LOGGER.info("%s: P2P session established via %s", self._log_name, Address(self._host))
+        peer = self._transport.peer
+        _LOGGER.info(
+            "%s: P2P session established via %s (%s)",
+            self._log_name,
+            Address(peer[0] if peer is not None else self._host),
+            path,
+        )
         return creds
 
     async def _unwrap_conn_init(

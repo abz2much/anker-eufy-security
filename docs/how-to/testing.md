@@ -89,7 +89,9 @@ async def test_warm_start_needs_no_cloud() -> None:
   `guard_mode`, `schedule_mode` (the slot mode a selected Schedule puts in force),
   `images` (stills by path; a path not in it gets no reply, so the fetch times out, and
   `image_requests` lists every path asked), `answer_params`, `answer_conn_init`, `params_cipher`, `recording_frames`,
-  `unhandled_commands` (answered with receipt −108), `playback_end_delay`.
+  `unhandled_commands` (answered with receipt −108), `playback_end_delay`,
+  `ignore_searches` (LAN searches left unanswered) and `answers_punch` (a client's punch
+  on `session_port` is answered with the station's `PUNCH_PKT`, as a rendezvous punch is).
   A standalone fake (a T8170 serial, `cipher_id=98`, `receipt_len=STANDALONE_RECEIPT_LEN`)
   answers the 1700 recipes: `preset_points` (the 6034 answer), `preset_gotos`,
   `doorbell_payloads`, `bare_stops` and `pings` record what arrived, and
@@ -174,9 +176,14 @@ attempts. A test that meets such a wait on purpose shortens it.
 | re-send while the camera moves; default-preset write result | `station.PTZ_BUSY_DELAY`, `DEFAULT_PRESET_RESULT_WAIT` | 0.05 s, 0.1 s |
 | full-resolution live image, live open (1700) | `station.FULL_RESOLUTION_TIMEOUT`, `devices.recipes.LIVE_OPEN_TIMEOUT` | 1 s, 2 s |
 | LAN search (`async_probe_lan`, `async_station_choices`) | `p2p.pppp.LAN_DISCOVERY_TIMEOUT` | 0.5 s |
+| rendezvous probe of `async_station_choices`: per station, all | `client.RENDEZVOUS_PROBE_TIMEOUT`, `RENDEZVOUS_PROBE_BUDGET` | 0.5 s, 2 s |
 
 Not shortened, because a test observes their length: `PARAM_SETTLE` (sub-device blocks
 following a dump), `MEDIA_IDLE_TIMEOUT`, `MEDIA_DRAIN_MAX` (a stopped stream's leftover
 frames), `SETTLE_STATION` and `SETTLE_STANDALONE` (how long a picture size must hold;
 a full-resolution image is bounded by `FULL_RESOLUTION_TIMEOUT`), the probe schedule,
-and the reprobe and idle-close delays. Set them per test.
+and the reprobe and idle-close delays. Set them per test. So is
+`p2p.transport.ON_LINK_PUNCH_GRACE` (2.5 s): a test of a station whose LAN replies are
+dropped (`FakeStation(ignore_searches=…, answers_punch=True)` behind a routed punch)
+links only after it, so set it below the short `DISCOVERY_TIMEOUT` (also 2.5 s) or the
+attempt ends first.

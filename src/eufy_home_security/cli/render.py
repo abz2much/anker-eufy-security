@@ -41,7 +41,7 @@ from ..events import (
     ZoomChanged,
 )
 from ..models import STATION_CHANNEL, GuardMode, ValueSource
-from ..network import LanPath, PathWarning, suggest_local_ports
+from ..network import HostSource, LanPath, PathWarning, suggest_local_ports
 
 if TYPE_CHECKING:
     from ..client import ModelStatus
@@ -193,6 +193,14 @@ def render_invites(invites: Sequence[CloudInvite], *, show_serials: bool) -> str
 # ── network ──────────────────────────────────────────────────────────────────
 
 
+_HOST_SOURCES = {
+    HostSource.CONFIGURED: "the configured address {host}",
+    HostSource.CLOUD: "the address the cloud reports, {host},",
+    HostSource.DEVICE: "the address the station reports, {host},",
+}
+"""How a searched address is named in advice, by :class:`HostSource`."""
+
+
 def render_network(paths: Sequence[LanPath], *, show_serials: bool) -> str:
     """Each station's LAN path, and what a firewall between here and it must allow."""
     if not paths:
@@ -218,8 +226,23 @@ def render_network(paths: Sequence[LanPath], *, show_serials: bool) -> str:
         who = path.name or fmt_serial(path.serial, show_serials)
         station = path.name or path.serial
         ip = path.station_ip or "<station IP>"
-        for warning in path.warnings:
+        warnings = path.warnings
+        # A blocked LAN reply states the firewall fix itself, so no other line repeats it.
+        blocked = PathWarning.LAN_REPLY_BLOCKED in warnings
+        pin = (
+            ""
+            if path.local_port
+            else f"allow all UDP from {ip}, or pin a port (--station {station!r} "
+            f"--local-port {suggested[path.serial]}) and allow UDP from {ip} to it"
+        )
+        for warning in warnings:
             match warning:
+                case PathWarning.BROADCAST_ONLY if path.host_source is HostSource.DEVICE:
+                    fixed = path.observed_ip or path.host
+                    advice.append(
+                        f"{who}: searched at the address it reports ({path.host}), which can "
+                        f"change; give the station a fixed IP and pass --host {fixed}"
+                    )
                 case PathWarning.BROADCAST_ONLY if path.observed_ip:
                     advice.append(
                         f"{who}: found only by broadcast (at {path.observed_ip}), so this host "
@@ -232,24 +255,34 @@ def render_network(paths: Sequence[LanPath], *, show_serials: bool) -> str:
                         "host must be on the station's network; give the station a fixed IP "
                         "and pass --host"
                     )
-                case PathWarning.EPHEMERAL_PORT:
-                    advice.append(
-                        f"{who}: if this host or the network filters inbound UDP, allow all UDP "
-                        f"from {ip}, or pin a port (--station {station!r} --local-port "
-                        f"{suggested[path.serial]}) and allow UDP from {ip} to it"
-                    )
+                case PathWarning.EPHEMERAL_PORT if not blocked:
+                    advice.append(f"{who}: if this host or the network filters inbound UDP, {pin}")
                 case PathWarning.NO_LAN_REPLY:
                     advice.append(
                         f"{who}: did not answer LAN discovery: it is offline, on another "
-                        "network, or a firewall drops its replies"
+                        "network, or a firewall drops its replies. It may still connect "
+                        "through its rendezvous servers: where every filter on the way "
+                        "admits replies by connection tracking, no firewall rule is needed"
+                    )
+                case PathWarning.LAN_REPLY_BLOCKED:
+                    fix = (
+                        f"allow UDP from {ip} to this host's port {path.local_port}"
+                        if path.local_port
+                        else pin
+                    )
+                    advice.append(
+                        f"{who}: on this host's network, but its LAN replies do not arrive "
+                        "(a firewall here drops them), so every connect goes through eufy's "
+                        f"servers and needs internet access; {fix}"
                     )
                 case PathWarning.ADDRESS_CHANGED:
                     elsewhere = path.observed_ip or path.cloud_ip
+                    source = _HOST_SOURCES.get(path.host_source, "the searched address {host}")
                     advice.append(
-                        f"{who}: the configured address {path.host} is not where the station "
-                        f"is ({elsewhere}); its IP has changed, or the setting is stale"
+                        f"{who}: {source.format(host=path.host)} is not where the station "
+                        f"is ({elsewhere}); its IP has changed, or the source is stale"
                     )
-        if path.local_port:
+        if path.local_port and not blocked:
             advice.append(f"{who}: allow UDP from {ip} to this host's port {path.local_port}")
     lines = _table(rows, indent="")
     lines += ["", "Network:"]

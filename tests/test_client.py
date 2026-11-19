@@ -9,6 +9,7 @@ import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
+from ipaddress import IPv4Address, IPv4Network, IPv6Network
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 from typing import Any, ClassVar, cast
@@ -17,6 +18,7 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
+from eufy_home_security import _logging as logging_module
 from eufy_home_security import client as client_module
 from eufy_home_security import storage as storage_module
 from eufy_home_security._logging import LogThrottle, redact_serial
@@ -25,7 +27,7 @@ from eufy_home_security.cloud import crypto
 from eufy_home_security.cloud.api import CipherKeys, EufyCloudApi, HttpSession, _SessionExpiredError
 from eufy_home_security.cloud.const import KEY_REFRESH_SLOW_RETRY, CloudCode
 from eufy_home_security.cloud.models import CloudDevice, CloudInvite
-from eufy_home_security.cloud.status import LoginNeed
+from eufy_home_security.cloud.status import DeviceListSource, LoginNeed
 from eufy_home_security.devices.model_settings import (
     PARENTLESS_ONLY,
     bundled_td_version,
@@ -74,15 +76,18 @@ from eufy_home_security.identity import StationClaims
 from eufy_home_security.images import JPEG_CONTENT_TYPE, PushImage
 from eufy_home_security.inclusion import Reach
 from eufy_home_security.install import InstallState
-from eufy_home_security.models import GuardMode
-from eufy_home_security.network import PathWarning
+from eufy_home_security.models import PARAM_LAN_IP, GuardMode
+from eufy_home_security.network import HostSource, PathWarning
 from eufy_home_security.p2p import discovery as discovery_module
+from eufy_home_security.p2p import netif
 from eufy_home_security.p2p import session as session_module
+from eufy_home_security.p2p import transport as transport_module
 from eufy_home_security.p2p.did import Did
 from eufy_home_security.p2p.discovery import DiscoveredStation
 from eufy_home_security.p2p.media import Still, StillFormat
 from eufy_home_security.p2p.messages import STANDALONE_RECEIPT_LEN
-from eufy_home_security.p2p.pppp import BROADCAST
+from eufy_home_security.p2p.pppp import BROADCAST, encode_sockaddr
+from eufy_home_security.p2p.transport import RENDEZVOUS_PORT, ConnectPath, PPPPTransport, Wake
 from eufy_home_security.p2p.xzyh import FrameType
 from eufy_home_security.push import fcm as fcm_module
 from eufy_home_security.station import Station
@@ -103,6 +108,7 @@ from eufy_home_security.testing.cloud import (
     station_device,
     thing_description,
 )
+from tests.p2p.test_transport import _PunchToServer
 
 OTHER_STATION_SN = "T8030P2000054321"
 OTHER_DID = "EUPRAMA-654321-ABCDE"
@@ -169,6 +175,7 @@ class StubCloud:
         self.user_name = "user"
         self.logins: list[dict[str, Any]] = []
         self.scanned_codes: list[list[str]] = []
+        self.device_list_source: DeviceListSource | None = "fetched"
 
     async def async_login(self, **kwargs: Any) -> None:
         self.logins.append(kwargs)
@@ -1241,6 +1248,320 @@ async def test_station_choices_offer_every_station_with_its_reach(
     assert [d.device_sn for d in choices[SYNTHETIC.station_sn].sub_devices] == [SYNTHETIC.camera_sn]
     assert choices[OTHER_STATION_SN].reach is Reach.REMOTE
     assert not choices[OTHER_STATION_SN].enabled_by_default
+
+
+# ── rendezvous probe in the station choices ─────────────────────────────────
+
+BATTERY_SN = "T8134P2000012345"
+"""A standalone battery camera: reached on demand."""
+BATTERY_DID = "EUPRAMA-654322-ABCDE"
+SERVERS = ("192.0.2.1",)
+
+
+class Punches:
+    """Stands in for ``PPPPTransport.punch_probe``: records each probe's DID and wake,
+    holds it while ``gate`` is set and not released, then answers a punch for a DID in
+    ``reached``, else raises :class:`StationUnreachableError`."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, reached: Sequence[str] = ()) -> None:
+        self.probed: list[str] = []
+        self.wakes: list[Wake] = []
+        self.reached = set(reached)
+        self.gate: asyncio.Event | None = None
+        self.in_flight = 0
+        self.peak = 0
+
+        async def punch_probe(
+            _transport: PPPPTransport, *, expected_did: Did, wake: Wake, timeout: float
+        ) -> tuple[str, int]:
+            self.probed.append(str(expected_did))
+            self.wakes.append(wake)
+            self.in_flight += 1
+            self.peak = max(self.peak, self.in_flight)
+            try:
+                await (self.gate.wait() if self.gate is not None else asyncio.sleep(0))
+            finally:
+                self.in_flight -= 1
+            if str(expected_did) in self.reached:
+                return ("192.0.2.77", 40000)
+            raise StationUnreachableError("no punch through 1 rendezvous server within 5s")
+
+        monkeypatch.setattr(PPPPTransport, "punch_probe", punch_probe)
+
+
+def _lan_answers(monkeypatch: pytest.MonkeyPatch, *answering: tuple[str, str]) -> None:
+    """LAN discovery answers each (ip, did) when that ip is searched, nothing else."""
+
+    async def fake_discover(*, timeout: float, port: int, target: str) -> list[DiscoveredStation]:
+        return [
+            DiscoveredStation(ip=ip, port=40000, did=Did.parse(did))
+            for ip, did in answering
+            if target == ip
+        ]
+
+    monkeypatch.setattr(discovery_module, "discover_stations", fake_discover)
+
+
+def _with_battery(cloud: FakeCloud) -> FakeCloud:
+    cloud.devices.append(station_device(BATTERY_SN, did=BATTERY_DID, name="Battery"))
+    return cloud
+
+
+def _dsk_calls(cloud: FakeCloud) -> list[str]:
+    return [call for call in cloud.calls if call.startswith("dsk:")]
+
+
+@pytest.fixture
+def servers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(CloudDevice, "rendezvous_servers", SERVERS)
+
+
+@pytest.mark.usefixtures("servers")
+async def test_a_mains_station_only_its_servers_reach_is_offered_as_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The station answering LAN discovery costs no DSK and no punch; the one only a
+    punch reaches is local, through its servers; a battery station is not probed."""
+    _lan_answers(monkeypatch, (SYNTHETIC.station_ip, SYNTHETIC.did))
+    punches = Punches(monkeypatch, reached=[OTHER_DID])
+    cloud = _with_battery(two_stations(other_did=OTHER_DID))
+    cloud.dsk_keys[OTHER_STATION_SN] = "dsk-of-the-garage-probe"
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, cloud)
+        choices = {c.serial: c for c in await eufy.async_station_choices()}
+        assert eufy.stations == {}
+        await eufy.async_close()
+
+    home, garage, battery = (
+        choices[sn] for sn in (SYNTHETIC.station_sn, OTHER_STATION_SN, BATTERY_SN)
+    )
+    assert (home.rendezvous, home.reachable_via, home.reach) == (None, ConnectPath.LAN, Reach.LOCAL)
+    assert (garage.rendezvous, garage.reachable_via) == (True, ConnectPath.RENDEZVOUS)
+    assert garage.reach is Reach.LOCAL
+    assert garage.enabled_by_default
+    assert garage.path.answered is False  # the LAN advice still applies
+    assert (battery.rendezvous, battery.reachable_via, battery.reach) == (None, None, Reach.REMOTE)
+    assert battery.connects_on_demand
+    assert not garage.connects_on_demand
+    assert punches.probed == [OTHER_DID]
+    assert [wake.servers for wake in punches.wakes] == [SERVERS]
+    assert _dsk_calls(cloud) == [f"dsk:{redact_serial(OTHER_STATION_SN)}"]
+    assert b"dsk-of-the-garage-probe" in logging_module._SECRET_BYTES  # starred in hexdumps
+
+
+@pytest.mark.usefixtures("servers")
+async def test_a_station_its_servers_do_not_reach_stays_remote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _lan_answers(monkeypatch)
+    punches = Punches(monkeypatch)
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, two_stations(other_did=OTHER_DID))
+        choices = {c.serial: c for c in await eufy.async_station_choices()}
+        await eufy.async_close()
+
+    assert sorted(punches.probed) == sorted([SYNTHETIC.did, OTHER_DID])
+    for choice in choices.values():
+        assert (choice.rendezvous, choice.reachable_via, choice.reach) == (
+            False,
+            None,
+            Reach.REMOTE,
+        )
+
+
+async def test_a_station_without_rendezvous_servers_is_not_probed_through_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _lan_answers(monkeypatch)
+    punches = Punches(monkeypatch, reached=[OTHER_DID])
+    cloud = two_stations(other_did=OTHER_DID)
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, cloud)
+        choices = await eufy.async_station_choices()
+        await eufy.async_close()
+
+    assert punches.probed == []
+    assert _dsk_calls(cloud) == []
+    assert {c.rendezvous for c in choices} == {None}
+
+
+@pytest.mark.usefixtures("servers")
+@pytest.mark.parametrize(
+    "error",
+    [
+        FakeCloud.refusal(200, 26050, "no dsk"),
+        SessionReplacedError(),
+        FakeCloud.refusal(401),  # an expired session: never a login here
+    ],
+    ids=["refused", "replaced", "expired"],
+)
+async def test_without_a_dsk_the_choices_keep_the_lan_result(
+    monkeypatch: pytest.MonkeyPatch, error: EufySecurityError
+) -> None:
+    """A cloud failure (reported as a CloudProblem, as for a connect) leaves the
+    station unprobed; nothing logs in."""
+    _lan_answers(monkeypatch, (SYNTHETIC.station_ip, SYNTHETIC.did))
+    punches = Punches(monkeypatch, reached=[OTHER_DID])
+    cloud = two_stations(other_did=OTHER_DID)
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, cloud)
+        events: list[Event] = []
+        eufy.subscribe(events.append)
+        calls = len(cloud.calls)
+        cloud.call_errors = [error]
+        choices = {c.serial: c for c in await eufy.async_station_choices()}
+        await eufy.async_close()
+
+    garage = choices[OTHER_STATION_SN]
+    assert (garage.rendezvous, garage.reach) == (None, Reach.REMOTE)
+    assert punches.probed == []
+    assert "login" not in cloud.calls[calls:]
+    (problem,) = _problems(events)
+    assert problem.station_sn == OTHER_STATION_SN
+
+
+@pytest.mark.usefixtures("servers")
+async def test_a_connected_station_is_not_probed_and_reports_its_links_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeStation()
+    await fake.start()
+    cloud = FakeCloud.for_stations(fake)
+    cloud.devices.append(station_device(OTHER_STATION_SN, did=OTHER_DID))
+    try:
+        eufy = build_eufy_security(
+            email=SYNTHETIC.email,
+            store=warm_store(email=SYNTHETIC.email, cloud=cloud),
+            cloud=cloud,
+            stations={fake.serial: fake},
+            include={fake.serial: Reach.LOCAL},
+        )
+        await eufy.async_discover()
+        assert await eufy.async_start(push=False) == {}
+        await wait_for(lambda: eufy.stations[fake.serial].connected)
+        _lan_answers(monkeypatch)
+        punches = Punches(monkeypatch)
+        choices = {c.serial: c for c in await eufy.async_station_choices()}
+        assert punches.probed == [OTHER_DID]
+        assert choices[fake.serial].reachable_via is ConnectPath.LAN
+        assert choices[fake.serial].rendezvous is None
+
+        # A link that came through the servers says so.
+        eufy.stations[fake.serial].session._connect_path = ConnectPath.RENDEZVOUS
+        choices = {c.serial: c for c in await eufy.async_station_choices()}
+        assert punches.probed == [OTHER_DID] * 2
+        assert choices[fake.serial].rendezvous is True
+        assert choices[fake.serial].reachable_via is ConnectPath.RENDEZVOUS
+        await eufy.async_close()
+    finally:
+        fake.stop()
+
+
+@pytest.mark.usefixtures("servers")
+@pytest.mark.parametrize(
+    ("last_link", "rendezvous"),
+    [(ConnectPath.RENDEZVOUS, True), (ConnectPath.LAN, None), (None, None)],
+)
+async def test_a_built_station_that_is_down_reports_its_last_link_unprobed(
+    monkeypatch: pytest.MonkeyPatch, last_link: ConnectPath | None, rendezvous: bool | None
+) -> None:
+    """A built station's own session reconnects it, through the servers too: the setup
+    probe sends it no punch of its own and reports how its last link came up."""
+    _lan_answers(monkeypatch)
+    punches = Punches(monkeypatch)
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, two_stations(other_did=OTHER_DID))
+        await eufy.async_discover()
+        home = eufy.stations[SYNTHETIC.station_sn]
+        assert not home.session.connected
+        home.session._connect_path = last_link
+        choices = {c.serial: c for c in await eufy.async_station_choices()}
+        await eufy.async_close()
+
+    assert SYNTHETIC.did not in punches.probed
+    assert choices[SYNTHETIC.station_sn].rendezvous is rendezvous
+
+
+@pytest.mark.usefixtures("servers")
+async def test_cancelling_the_choices_call_cancels_the_probes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller cancelled during the rendezvous probe: no probe keeps running and no
+    queued probe starts afterwards."""
+    monkeypatch.setattr(client_module, "RENDEZVOUS_PROBE_CONCURRENCY", 2)
+    monkeypatch.setattr(client_module, "RENDEZVOUS_PROBE_BUDGET", 30.0)
+    _lan_answers(monkeypatch)
+    punches = Punches(monkeypatch)
+    punches.gate = asyncio.Event()
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, _mains_stations(4))
+        task = asyncio.create_task(eufy.async_station_choices(timeout=0.1))
+        await wait_for(lambda: punches.in_flight == 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0.05)
+        in_flight_after_cancel = punches.in_flight
+        punches.gate.set()
+        await asyncio.sleep(0.1)
+        probed_total = len(punches.probed)
+        await eufy.async_close()
+    assert (in_flight_after_cancel, probed_total) == (0, 2)
+
+
+def _mains_stations(count: int) -> FakeCloud:
+    return FakeCloud(
+        devices=[
+            station_device(f"T8030P20000{n:05d}", did=f"EUPRAMA-65{n:04d}-ABCDE", name=f"S{n}")
+            for n in range(count)
+        ]
+    )
+
+
+@pytest.mark.usefixtures("servers")
+async def test_rendezvous_probes_run_concurrently_up_to_the_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(client_module, "RENDEZVOUS_PROBE_CONCURRENCY", 2)
+    _lan_answers(monkeypatch)
+    punches = Punches(monkeypatch)
+    punches.gate = asyncio.Event()
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, _mains_stations(5))
+        task = asyncio.create_task(eufy.async_station_choices())
+        await wait_for(lambda: punches.in_flight == 2)
+        await asyncio.sleep(0.05)
+        assert (punches.in_flight, len(punches.probed)) == (2, 2)
+        punches.gate.set()
+        choices = await asyncio.wait_for(task, 5)
+        await eufy.async_close()
+
+    assert len(punches.probed) == 5
+    assert punches.peak == 2
+    assert {c.rendezvous for c in choices} == {False}
+
+
+@pytest.mark.usefixtures("servers")
+async def test_the_rendezvous_probes_end_within_their_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probes still running at the budget's end are cancelled and report nothing."""
+    monkeypatch.setattr(client_module, "RENDEZVOUS_PROBE_BUDGET", 0.2)
+    _lan_answers(monkeypatch)
+    punches = Punches(monkeypatch)
+    punches.gate = asyncio.Event()  # never released
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, _mains_stations(2))
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        choices = await asyncio.wait_for(eufy.async_station_choices(timeout=0.1), 5)
+        elapsed = loop.time() - started
+        await eufy.async_close()
+
+    assert len(punches.probed) == 2
+    assert punches.in_flight == 0  # cancelled, not left running
+    assert elapsed < 1.5
+    assert {(c.rendezvous, c.reach) for c in choices} == {(None, Reach.REMOTE)}
 
 
 def test_two_stations_cannot_share_a_local_port() -> None:
@@ -2414,6 +2735,528 @@ async def test_a_latched_session_fails_an_on_demand_wake_at_once(
         assert cloud.calls == sent  # refused locally
         assert [type(p.error) for p in _problems(events)] == [SessionReplacedError]
         await eufy.async_close()
+
+
+async def test_only_a_fetched_dsk_counts_as_a_cloud_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DSK from the cache made no cloud call: it leaves a reported cloud problem
+    reported, so the same failure again stays quiet. A fetched one makes it news."""
+    monkeypatch.setattr(CloudDevice, "rendezvous_servers", ("192.0.2.1",))
+    async with aiohttp.ClientSession() as http:
+        cloud = FakeCloud()
+        eufy = account(http, cloud)
+        events: list[Event] = []
+        eufy.subscribe(events.append)
+        wake = eufy._wake_provider(CloudDevice.from_api(station_device()))
+        serial = SYNTHETIC.station_sn
+
+        async def failing_fetch() -> None:
+            eufy.cache.drop_dsk_key(serial)
+            cloud.call_errors = [FakeCloud.refusal(200, 26050, "no dsk")]
+            assert await wake() is None
+
+        await failing_fetch()
+        assert len(_problems(events)) == 1
+        eufy.cache.set_dsk_key(serial, "cached-dsk", time.time() + 3600)
+        assert (await wake()) == Wake(servers=("192.0.2.1",), dsk="cached-dsk")
+        await failing_fetch()
+        assert len(_problems(events)) == 1  # the cache hit was no success
+        eufy.cache.drop_dsk_key(serial)
+        assert await wake() is not None  # fetched
+        await failing_fetch()
+        assert len(_problems(events)) == 2
+        await eufy.async_close()
+
+
+async def test_concurrent_connects_fetch_one_dsk_per_station(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A held and a short-lived session of one station, and a second station, all
+    connecting at once: one ``get_dsk_keys`` per station."""
+    monkeypatch.setattr(CloudDevice, "rendezvous_servers", ("192.0.2.1",))
+    fetch = EufyCloudApi._fetch_dsk
+
+    async def slow_fetch(api: EufyCloudApi, station_sn: str, **kwargs: Any) -> Any:
+        await asyncio.sleep(0.01)  # the request is in flight while the others ask
+        return await fetch(api, station_sn, **kwargs)
+
+    monkeypatch.setattr(EufyCloudApi, "_fetch_dsk", slow_fetch)
+    async with aiohttp.ClientSession() as http:
+        cloud = FakeCloud()
+        eufy = account(http, cloud)
+        home = eufy._wake_provider(CloudDevice.from_api(station_device()))
+        other = eufy._wake_provider(CloudDevice.from_api(garage_device()))
+        await asyncio.gather(home(), home(), home(), other(), other())
+        fetches = [call for call in cloud.calls if call.startswith("dsk:")]
+        assert sorted(fetches) == sorted(
+            f"dsk:{redact_serial(sn)}" for sn in (SYNTHETIC.station_sn, OTHER_STATION_SN)
+        )
+        await eufy.async_close()
+
+
+async def test_every_station_gets_the_rendezvous_and_its_reported_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A held station has the rendezvous connect as well (see ``_rendezvous_on``);
+    one without a configured or cloud address also searches the address it reports."""
+    monkeypatch.setattr(CloudDevice, "rendezvous_servers", ("192.0.2.1",))
+    garage = garage_device() | {
+        "params": [{"param_type": PARAM_LAN_IP, "param_value": "192.0.2.77"}]
+    }
+    cloud = FakeCloud(devices=[station_device(), camera_device(), garage])
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, cloud)
+        stations = {s.serial: s for s in await eufy.async_discover()}
+        home, other = stations[SYNTHETIC.station_sn], stations[OTHER_STATION_SN]
+        assert not home.connects_on_demand
+        assert home.session._wake_provider is not None
+        assert other.session._wake_provider is not None
+        assert (home.session.extra_hosts, other.session.extra_hosts) == ((), ("192.0.2.77",))
+        assert other.lan_path.host_source is HostSource.DEVICE
+        assert home.lan_path.host_source is HostSource.CLOUD
+        await eufy.async_close()
+
+
+async def test_a_cached_only_wake_never_calls_the_cloud(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``cached_only``: the wake from a fresh cached DSK, else None, with no fetch and
+    no cloud problem either way."""
+    monkeypatch.setattr(CloudDevice, "rendezvous_servers", ("192.0.2.1",))
+    async with aiohttp.ClientSession() as http:
+        cloud = FakeCloud()
+        eufy = account(http, cloud)
+        events: list[Event] = []
+        eufy.subscribe(events.append)
+        wake = eufy._wake_provider(CloudDevice.from_api(station_device()))
+        serial = SYNTHETIC.station_sn
+        sent = list(cloud.calls)
+        assert await wake(cached_only=True) is None
+        eufy.cache.set_dsk_key(serial, "cached-dsk", time.time() + 3600)
+        assert await wake(cached_only=True) == Wake(servers=("192.0.2.1",), dsk="cached-dsk")
+        eufy.cache.set_dsk_key(serial, "stale-dsk", time.time() + 1)  # inside the margin
+        assert await wake(cached_only=True) is None
+        assert cloud.calls == sent
+        assert _problems(events) == []
+        await eufy.async_close()
+
+
+async def test_a_cached_only_wake_without_servers_is_none() -> None:
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, FakeCloud())
+        eufy.cache.set_dsk_key(SYNTHETIC.station_sn, "cached-dsk", time.time() + 3600)
+        wake = eufy._wake_provider(CloudDevice.from_api(station_device()))
+        assert await wake(cached_only=True) is None
+        await eufy.async_close()
+
+
+def _link_path_store(cloud: FakeCloud, paths: Mapping[str, object]) -> MemoryStore:
+    """A warm store whose station entries hold ``paths`` as their last link path."""
+    store = warm_store(email=SYNTHETIC.email, cloud=cloud)
+    assert store.data is not None
+    for serial, path in paths.items():
+        store.data.setdefault("stations", {}).setdefault(serial, {})["link_path"] = path
+    return store
+
+
+async def test_a_station_session_starts_from_the_cached_link_path() -> None:
+    """The path a station's last link took, kept in the cache, is the session's initial
+    one: a station last reached through its servers goes there on the first attempt
+    after a restart."""
+    cloud = two_stations()
+    store = _link_path_store(cloud, {SYNTHETIC.station_sn: "rendezvous"})
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, cloud, store=store)
+        stations = {s.serial: s for s in await eufy.async_discover()}
+        assert stations[SYNTHETIC.station_sn].session.connect_path is ConnectPath.RENDEZVOUS
+        assert stations[SYNTHETIC.station_sn].session._rendezvous_on(1)
+        assert stations[OTHER_STATION_SN].session.connect_path is None  # none stored
+        await eufy.async_close()
+
+
+async def test_a_link_records_its_path_in_the_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A station kept as last reached through its servers that the LAN answers is
+    stored as ``"lan"`` once its link is up, and survives the close."""
+    fake = FakeStation()
+    await fake.start()
+    cloud = FakeCloud.for_stations(fake)
+    store = _link_path_store(cloud, {fake.serial: "rendezvous"})
+    try:
+        eufy = build_eufy_security(
+            email=SYNTHETIC.email, store=store, cloud=cloud, stations={fake.serial: fake}
+        )
+        await eufy.async_discover()
+        assert await eufy.async_start(push=False) == {}
+        await wait_for(lambda: eufy.cache.link_path(fake.serial) is ConnectPath.LAN)
+        await eufy.async_close()
+    finally:
+        fake.stop()
+    assert store.data is not None
+    assert store.data["stations"][fake.serial]["link_path"] == "lan"
+
+
+async def test_the_link_path_is_saved_only_when_it_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saves: list[float] = []
+    monkeypatch.setattr(
+        storage_module.SessionCache, "schedule_save", lambda self, delay=0.0: saves.append(delay)
+    )
+    cloud = two_stations()
+    store = _link_path_store(cloud, {SYNTHETIC.station_sn: "lan"})
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, cloud, store=store)
+        stations = {s.serial: s for s in await eufy.async_discover()}
+        session = stations[SYNTHETIC.station_sn].session
+        up = ConnectionChanged(station_sn=SYNTHETIC.station_sn, connected=True)
+        eufy._on_station_event(up)  # still lan
+        assert saves == []
+        session._connect_path = ConnectPath.RENDEZVOUS
+        eufy._on_station_event(up)
+        eufy._on_station_event(up)
+        assert len(saves) == 1
+        assert eufy.cache.link_path(SYNTHETIC.station_sn) is ConnectPath.RENDEZVOUS
+        session._connect_path = ConnectPath.LAN
+        eufy._on_station_event(ConnectionChanged(station_sn=SYNTHETIC.station_sn, connected=False))
+        eufy._on_station_event(  # a link of a station this client did not build
+            ConnectionChanged(station_sn="T8030P2000099999", connected=True)
+        )
+        assert len(saves) == 1
+        await eufy.async_close()
+
+
+@pytest.mark.parametrize("refresh", [False, True])
+async def test_a_station_the_list_no_longer_names_loses_its_link_path(refresh: bool) -> None:
+    """A whole list, the cached one or one fetched now, drops the path of a station it
+    does not name."""
+    cloud = FakeCloud(devices=[station_device(), camera_device()])
+    store = _link_path_store(
+        cloud, {SYNTHETIC.station_sn: "rendezvous", OTHER_STATION_SN: "rendezvous"}
+    )
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, cloud, store=store)
+        await eufy.async_discover(refresh=refresh)
+        assert eufy.device_list_source == ("fetched" if refresh else "cache")
+        assert eufy.cache.link_path(SYNTHETIC.station_sn) is ConnectPath.RENDEZVOUS
+        assert eufy.cache.link_path(OTHER_STATION_SN) is None
+        assert store.data is not None
+        assert "link_path" not in store.data["stations"][OTHER_STATION_SN]  # saved at once
+        await eufy.async_close()
+
+
+async def test_a_listed_station_this_client_does_not_build_keeps_its_link_path() -> None:
+    """A station the list still names keeps its path whether or not it is built here
+    (included remote, or served by another account)."""
+    cloud = two_stations()
+    store = _link_path_store(
+        cloud, {SYNTHETIC.station_sn: "rendezvous", OTHER_STATION_SN: "rendezvous"}
+    )
+    async with aiohttp.ClientSession() as http:
+        eufy = account(
+            http,
+            cloud,
+            store=store,
+            stations={SYNTHETIC.station_sn: Reach.LOCAL, OTHER_STATION_SN: Reach.REMOTE},
+        )
+        await eufy.async_discover()
+        assert set(eufy.stations) == {SYNTHETIC.station_sn}
+        assert eufy.cache.link_path(OTHER_STATION_SN) is ConnectPath.RENDEZVOUS
+        await eufy.async_close()
+
+
+@pytest.mark.parametrize("source", ["fallback", "unsent"])
+async def test_a_list_that_is_not_whole_drops_no_link_path(
+    monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    """A list the cloud did not answer whole (a failed refresh's fallback, or nothing
+    sent while every scope is suspended) names no station's absence: every kept path
+    stays."""
+    cloud = FakeCloud(devices=[station_device(), camera_device()])
+    store = _link_path_store(cloud, {OTHER_STATION_SN: "rendezvous"})
+    async with aiohttp.ClientSession() as http:
+        eufy = account(http, cloud, store=store)
+        listed = eufy.cloud.async_get_devices
+
+        async def partial(**kwargs: Any) -> list[CloudDevice]:
+            devices = await listed(**kwargs)
+            eufy.cloud.device_list_source = source  # type: ignore[assignment]
+            return devices
+
+        monkeypatch.setattr(eufy.cloud, "async_get_devices", partial)
+        await eufy.async_discover()
+        assert eufy.cache.link_path(OTHER_STATION_SN) is ConnectPath.RENDEZVOUS
+        await eufy.async_close()
+
+
+STATION_LAN = "192.0.2.77"
+"""The punch-tested station's LAN address; routed to its loopback session socket."""
+SERVER = ("192.0.2.1", RENDEZVOUS_PORT)
+"""The station's rendezvous server; routed to a loopback :class:`_PunchToServer`."""
+
+
+def _route_punches(monkeypatch: pytest.MonkeyPatch, fake: FakeStation, server_port: int) -> None:
+    """Every transport the client opens reaches :data:`SERVER` at ``server_port`` and
+    :data:`STATION_LAN` at the fake's session socket (its discovery socket at the
+    discovery port), all on loopback, and drops the rest of what goes to the server's
+    host."""
+    connect = PPPPTransport.connect
+
+    async def routed(transport: PPPPTransport, host: str | None, **kwargs: Any) -> Did:
+        send, receive = transport._sendto, transport.datagram_received
+        start_alive = transport._start_alive_thread
+        station = ("127.0.0.1", fake.session_port)
+        server = ("127.0.0.1", server_port)
+
+        def sendto(packet: bytes, addr: tuple[str, int]) -> None:
+            if addr == SERVER:
+                send(packet, server)
+            elif addr == (STATION_LAN, fake.discovery_port):
+                send(packet, ("127.0.0.1", fake.discovery_port))
+            elif addr[0] == STATION_LAN:
+                send(packet, station)
+            elif addr[0] != SERVER[0]:
+                send(packet, addr)
+
+        def received(data: bytes, addr: tuple[str | Any, int]) -> None:
+            if addr == station:
+                addr = (STATION_LAN, addr[1])
+            elif addr == server:
+                addr = SERVER
+            receive(data, addr)
+
+        transport._sendto = sendto  # type: ignore[method-assign]
+        transport.datagram_received = received  # type: ignore[method-assign]
+        transport._start_alive_thread = lambda peer: start_alive(  # type: ignore[method-assign]
+            station if peer[0] == STATION_LAN else peer
+        )
+        return await connect(transport, host, **kwargs)
+
+    monkeypatch.setattr(PPPPTransport, "connect", routed)
+
+
+@pytest.mark.parametrize(
+    ("stored", "networks", "path"),
+    [
+        (None, (IPv4Network("192.0.2.0/24"),), ConnectPath.LAN),
+        ("rendezvous", (IPv4Network("192.0.2.0/24"),), ConnectPath.LAN),
+        (None, (IPv4Network("198.51.100.0/24"),), ConnectPath.RENDEZVOUS),
+    ],
+)
+async def test_a_station_answering_the_punch_first_is_stored_by_this_hosts_networks(
+    monkeypatch: pytest.MonkeyPatch,
+    stored: str | None,
+    networks: tuple[IPv4Network, ...],
+    path: ConnectPath,
+) -> None:
+    """A station that ignores the LAN search (as once after a close) and answers the
+    punch toward its LAN address, with its DSK cached: in one of this host's networks
+    the link is stored as ``"lan"`` (a stored ``"rendezvous"`` too), on another subnet
+    as ``"rendezvous"``. No ``get_dsk_keys`` is sent."""
+    monkeypatch.setattr(transport_module, "ON_LINK_PUNCH_GRACE", 0.3)
+    fake = FakeStation(ignore_searches=1000, answers_punch=True)
+    await fake.start()
+    server = _PunchToServer([encode_sockaddr(STATION_LAN, fake.session_port)])
+    endpoint, _ = await asyncio.get_running_loop().create_datagram_endpoint(
+        lambda: server, local_addr=("127.0.0.1", 0)
+    )
+    _route_punches(monkeypatch, fake, endpoint.get_extra_info("sockname")[1])
+    monkeypatch.setattr(CloudDevice, "rendezvous_servers", (SERVER[0],))
+    monkeypatch.setattr(netif, "local_networks", lambda: networks)
+    cloud = FakeCloud.for_stations(fake)
+    store = _link_path_store(cloud, {} if stored is None else {fake.serial: stored})
+    eufy = build_eufy_security(
+        email=SYNTHETIC.email, store=store, cloud=cloud, stations={fake.serial: fake}
+    )
+    try:
+        await eufy.async_discover()
+        eufy.cache.set_dsk_key(fake.serial, "cached-dsk", time.time() + 3600)
+        assert await eufy.async_start(push=False) == {}
+        await wait_for(lambda: eufy.cache.link_path(fake.serial) is path)
+        assert eufy.stations[fake.serial].session.stats().connects_by_path == {str(path): 1}
+    finally:
+        await eufy.async_close()
+        fake.stop()
+        endpoint.close()
+    assert fake.searches > 0  # searched, and ignored
+    assert not [call for call in cloud.calls if call.startswith("dsk:")]
+    assert store.data is not None
+    assert store.data["stations"][fake.serial]["link_path"] == str(path)
+
+
+async def _punch_only_station(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[FakeStation, asyncio.DatagramTransport]:
+    """A started station at :data:`STATION_LAN` that ignores every LAN search but
+    answers a punch, and its rendezvous server naming that address (the endpoint to
+    close)."""
+    fake = FakeStation(ignore_searches=1000, answers_punch=True)
+    await fake.start()
+    server = _PunchToServer([encode_sockaddr(STATION_LAN, fake.session_port)])
+    endpoint, _ = await asyncio.get_running_loop().create_datagram_endpoint(
+        lambda: server, local_addr=("127.0.0.1", 0)
+    )
+    _route_punches(monkeypatch, fake, endpoint.get_extra_info("sockname")[1])
+    monkeypatch.setattr(CloudDevice, "rendezvous_servers", (SERVER[0],))
+    return fake, endpoint
+
+
+@pytest.mark.parametrize("override", [False, True])
+async def test_a_station_whose_lan_reply_is_blocked_shows_it_on_its_lan_path(
+    monkeypatch: pytest.MonkeyPatch, override: bool
+) -> None:
+    """A station on this host's network that never answers the LAN search but answers
+    the punch toward its LAN address: linked after the on-link grace, as a LAN link,
+    and its ``lan_path`` warns ``lan_reply_blocked`` at the address it answered from,
+    with no local port pinned (discovery searches that address). The host's networks
+    come from the interfaces, or from ``local_networks`` when given (the interfaces then
+    unread)."""
+    monkeypatch.setattr(transport_module, "ON_LINK_PUNCH_GRACE", 0.3)
+    fake, endpoint = await _punch_only_station(monkeypatch)
+    ours = (IPv4Network("192.0.2.0/24"),)
+    reads: list[None] = []
+
+    def reader() -> tuple[IPv4Network, ...]:
+        reads.append(None)
+        return ours
+
+    monkeypatch.setattr(netif, "local_networks", reader)
+    cloud = FakeCloud.for_stations(fake)
+    eufy = build_eufy_security(
+        email=SYNTHETIC.email,
+        store=MemoryStore(),
+        cloud=cloud,
+        stations={fake.serial: fake},
+        station_hosts={fake.serial: STATION_LAN},
+        local_networks=list(ours) if override else None,
+    )
+    try:
+        await eufy.async_discover()
+        station = eufy.stations[fake.serial]
+        assert PathWarning.LAN_REPLY_BLOCKED not in station.lan_path.warnings
+        eufy.cache.set_dsk_key(fake.serial, "cached-dsk", time.time() + 3600)
+        started = time.monotonic()
+        assert await eufy.async_start(push=False) == {}
+        await wait_for(lambda: station.session.stats().connects == 1)
+        assert time.monotonic() - started >= 0.3
+        stats = station.session.stats()
+        assert stats.connect_path == "lan"
+        assert stats.lan_reply_blocked is True
+        path = station.lan_path
+        assert PathWarning.LAN_REPLY_BLOCKED in path.warnings
+        assert PathWarning.EPHEMERAL_PORT in path.warnings
+        assert path.station_ip == STATION_LAN
+        assert path.local_port == 0
+        assert bool(reads) is not override
+        await wait_for(lambda: eufy.cache.lan_reply_blocked(fake.serial))
+        assert eufy.cache.link_path(fake.serial) is ConnectPath.LAN
+        # A probe while the link is up reports it from the session, warning kept.
+        (probed,) = await eufy.async_probe_lan()
+        assert probed.answered is None
+        assert PathWarning.LAN_REPLY_BLOCKED in probed.warnings
+    finally:
+        await eufy.async_close()
+        fake.stop()
+        endpoint.close()
+    assert fake.searches > 0  # searched at its address, and ignored
+
+
+async def test_no_local_networks_means_no_station_is_on_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``local_networks=[]``: this host has no network to treat as on-link. The station
+    above is punched at once (no grace) and links as ``"rendezvous"``, never flagged;
+    the interfaces are not read."""
+    monkeypatch.setattr(transport_module, "ON_LINK_PUNCH_GRACE", 2.0)
+    fake, endpoint = await _punch_only_station(monkeypatch)
+
+    def unread() -> tuple[IPv4Network, ...]:
+        raise AssertionError("the interfaces were read")
+
+    monkeypatch.setattr(netif, "local_networks", unread)
+    eufy = build_eufy_security(
+        email=SYNTHETIC.email,
+        store=MemoryStore(),
+        cloud=FakeCloud.for_stations(fake),
+        stations={fake.serial: fake},
+        station_hosts={fake.serial: STATION_LAN},
+        local_networks=[],
+    )
+    try:
+        await eufy.async_discover()
+        station = eufy.stations[fake.serial]
+        eufy.cache.set_dsk_key(fake.serial, "cached-dsk", time.time() + 3600)
+        started = time.monotonic()
+        assert await eufy.async_start(push=False) == {}
+        await wait_for(lambda: station.session.stats().connects == 1)
+        assert time.monotonic() - started < 1.0
+        stats = station.session.stats()
+        assert stats.connect_path == "rendezvous"
+        assert stats.lan_reply_blocked is False
+        assert PathWarning.LAN_REPLY_BLOCKED not in station.lan_path.warnings
+    finally:
+        await eufy.async_close()
+        fake.stop()
+        endpoint.close()
+
+
+@pytest.mark.parametrize(
+    "networks",
+    [
+        ["192.0.2.0/24"],
+        [IPv6Network("2001:db8::/32")],
+        [IPv4Address("192.0.2.1")],
+        IPv4Network("192.0.2.0/30"),  # a network, not a sequence of them
+    ],
+)
+def test_local_networks_take_only_ipv4_networks(networks: Any) -> None:
+    with pytest.raises(ValueError, match="local_networks"):
+        EufySecurity(
+            no_session(),
+            SYNTHETIC.email,
+            None,
+            store=MemoryStore(),
+            local_networks=networks,
+            _cloud_factory=cloud_factory(StubCloud),
+        )
+
+
+async def test_a_station_stored_with_a_blocked_lan_reply_warns_and_goes_to_the_servers_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The kept record of an earlier run: the station's ``lan_path`` warns before its
+    first link, and its first attempt runs the rendezvous with a DSK fetched from the
+    cloud (no LAN-only first attempt); its LAN link then clears the record."""
+    fake = FakeStation()
+    await fake.start()
+    calls: list[bool] = []
+    connect = PPPPTransport.connect
+
+    async def recording(transport: PPPPTransport, host: str | None, **kwargs: Any) -> Did:
+        calls.append(kwargs.get("wake") is not None)
+        kwargs.pop("wake", None)
+        return await connect(transport, host, **kwargs)
+
+    monkeypatch.setattr(PPPPTransport, "connect", recording)
+    monkeypatch.setattr(CloudDevice, "rendezvous_servers", (SERVER[0],))
+    cloud = FakeCloud.for_stations(fake)
+    store = _link_path_store(cloud, {fake.serial: "lan"})
+    assert store.data is not None
+    store.data["stations"][fake.serial]["lan_reply_blocked"] = True
+    eufy = build_eufy_security(
+        email=SYNTHETIC.email, store=store, cloud=cloud, stations={fake.serial: fake}
+    )
+    try:
+        await eufy.async_discover()
+        station = eufy.stations[fake.serial]
+        assert PathWarning.LAN_REPLY_BLOCKED in station.lan_path.warnings
+        assert await eufy.async_start(push=False) == {}
+        await wait_for(lambda: not eufy.cache.lan_reply_blocked(fake.serial))
+        assert PathWarning.LAN_REPLY_BLOCKED not in station.lan_path.warnings
+    finally:
+        await eufy.async_close()
+        fake.stop()
+    assert calls == [True]
+    assert [call for call in cloud.calls if call.startswith("dsk:")]
+    assert "lan_reply_blocked" not in store.data["stations"][fake.serial]
 
 
 # ── models without a bundled file ───────────────────────────────────────────

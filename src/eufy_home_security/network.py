@@ -11,8 +11,15 @@ the station needs a fixed IP (a DHCP reservation):
 
 Discovery is a broadcast unless the station's address is known (configured, or a
 private address from the cloud), and a broadcast only reaches the station's own
-network. The cloud's device list often carries no LAN address for a station, or a
-public one, so the address worth advising on is where the station *answers* from:
+network. Without either, the LAN address the station reports itself (parameter 1176
+in the cloud's snapshot) is searched by unicast beside the broadcast: the library's
+choice, the eufy app only broadcasts. A station on another network is reached through
+its rendezvous servers instead (``docs/protocol/p2p-transport.md``), which needs no
+firewall rule where every filter on the way admits replies by connection tracking.
+A station on this host's own network that links only through such a punch has its
+LAN replies dropped here (:attr:`PathWarning.LAN_REPLY_BLOCKED`).
+The cloud's device list often carries no LAN address for a station, or a public one,
+so the address worth advising on is where the station *answers* from:
 ``EufySecurity.async_probe_lan()`` runs one discovery and records it. Nothing in this
 module does I/O: :attr:`Station.lan_path` describes one station, :func:`with_discovery`
 folds a probe's replies in, and a consumer (the CLI, a config flow) turns the result
@@ -21,13 +28,13 @@ into advice.
 
 from __future__ import annotations
 
-import ipaddress
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
-from .p2p.pppp import DISCOVERY_PORT
+from .models import PARAM_LAN_IP
+from .p2p.pppp import DISCOVERY_PORT, is_lan_address
 
 if TYPE_CHECKING:
     from .cloud.models import CloudDevice
@@ -45,6 +52,9 @@ class HostSource(StrEnum):
     """Set by the user (``station_hosts``)."""
     CLOUD = "cloud"
     """The private ``local_ip`` the cloud reports for the station."""
+    DEVICE = "device"
+    """No address configured or reported by the cloud: the LAN address the station
+    reports itself (parameter 1176), searched by unicast beside the broadcast."""
     BROADCAST = "broadcast"
     """No address: discovery broadcasts on this host's networks."""
 
@@ -53,18 +63,29 @@ class PathWarning(StrEnum):
     """Something about a station's network path the user should act on."""
 
     BROADCAST_ONLY = "broadcast_only"
-    """No address is configured or reported: discovery is a broadcast, so this host
-    must share the station's network, and a firewall rule cannot rely on the address
-    the station answers from until that address is fixed."""
+    """No fixed address: none is configured or reported by the cloud, so discovery is
+    a broadcast, beside a unicast to the address the station reports itself
+    (:attr:`HostSource.DEVICE`), which follows its lease. A firewall rule cannot rely
+    on the address the station answers from until that address is fixed."""
     EPHEMERAL_PORT = "ephemeral_port"
     """No local port is pinned: a firewall that filters inbound UDP must allow all
     UDP from the station, or a local port must be pinned for it."""
     ADDRESS_CHANGED = "address_changed"
-    """The configured address is not where the station answered from, or not the one
-    the cloud reports: its IP changed (give it a fixed lease) or the setting is stale."""
+    """The searched address (:attr:`LanPath.host_source` says where it came from) is
+    not where the station answered from, or a configured one is not the one the cloud
+    reports: its IP changed (give it a fixed lease) or the source is stale."""
     NO_LAN_REPLY = "no_lan_reply"
     """The station did not answer LAN discovery: it is offline, on another network,
     or a firewall drops its replies."""
+    LAN_REPLY_BLOCKED = "lan_reply_blocked"
+    """The station is on one of this host's directly connected networks, but its
+    session's last link needed a punch through its rendezvous servers because its
+    replies to LAN discovery did not arrive (a firewall on this host drops them). The
+    link runs over the LAN, but every connect needs internet access, the servers and a
+    DSK. The fix names :attr:`LanPath.station_ip`: allow all UDP from it, or pin a local
+    port (:attr:`LanPath.local_port`) and allow UDP from it to that port. Not given when
+    a discovery probe got the station's answer (:attr:`LanPath.answered` True): its LAN
+    replies arrive."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -84,6 +105,9 @@ class LanPath:
     """The pinned local UDP port; 0 is an ephemeral port chosen per session."""
     answered: bool | None = None
     """Whether the station answered a discovery probe; None when none was run."""
+    lan_reply_blocked: bool = False
+    """Whether the session's last link needed a punch because the station's LAN reply
+    was blocked (:attr:`PathWarning.LAN_REPLY_BLOCKED`)."""
 
     @property
     def station_ip(self) -> str | None:
@@ -93,12 +117,15 @@ class LanPath:
     @property
     def warnings(self) -> tuple[PathWarning, ...]:
         found: list[PathWarning] = []
-        if self.host is None:
+        if self.host is None or self.host_source is HostSource.DEVICE:
             found.append(PathWarning.BROADCAST_ONLY)
         if not self.local_port:
             found.append(PathWarning.EPHEMERAL_PORT)
         if self.answered is False:
             found.append(PathWarning.NO_LAN_REPLY)
+        if self.lan_reply_blocked and self.answered is not True:
+            # A probe the station answered proves its LAN replies arrive.
+            found.append(PathWarning.LAN_REPLY_BLOCKED)
         if self.host is not None and (
             (self.observed_ip is not None and self.observed_ip != self.host)
             or (
@@ -128,13 +155,18 @@ def lan_path_for(
     search_host: str | None,
     local_port: int,
     learned_host: str | None = None,
+    lan_reply_blocked: bool = False,
 ) -> LanPath:
     """The :class:`LanPath` of ``device`` when discovery searches ``search_host``.
 
-    ``learned_host`` is where an established session found the station.
+    ``learned_host`` is where an established session found the station, and
+    ``lan_reply_blocked`` whether its link needed a punch for a blocked LAN reply.
     """
     cloud_ip = lan_address(device.local_ip)
-    if search_host is None:
+    reported = extra_search_hosts(device, search_host)
+    if reported:
+        search_host, source = reported[0], HostSource.DEVICE
+    elif search_host is None:
         source = HostSource.BROADCAST
     elif search_host == cloud_ip:
         source = HostSource.CLOUD
@@ -148,21 +180,30 @@ def lan_path_for(
         cloud_ip=cloud_ip,
         observed_ip=learned_host if learned_host != search_host else None,
         local_port=local_port,
+        lan_reply_blocked=lan_reply_blocked,
     )
 
 
-def lan_address(local_ip: str | None) -> str | None:
-    """The cloud's ``local_ip`` when it is a private address, else None.
+def extra_search_hosts(device: CloudDevice, search_host: str | None) -> tuple[str, ...]:
+    """The addresses discovery searches by unicast beside ``search_host``: the LAN
+    address ``device`` reports itself (parameter 1176 in the cloud's snapshot, when
+    private) while no address is configured or reported by the cloud (``search_host``
+    None, a broadcast); else none. The library's choice: the eufy app only broadcasts."""
+    if search_host is not None:
+        return ()
+    value = next((p.value for p in device.cloud_params if p.param_id == PARAM_LAN_IP), None)
+    reported = lan_address(value)
+    return () if reported is None else (reported,)
 
-    For some devices the field carries the home's public WAN address, which a LAN
-    discovery must not be pointed at.
+
+def lan_address(local_ip: str | None) -> str | None:
+    """``local_ip`` (the cloud's, or the one a station reports) when it is an IPv4
+    unicast LAN address (:func:`~.p2p.pppp.is_lan_address`), else None.
+
+    For some devices the cloud's field carries the home's public WAN address, which a
+    LAN discovery must not be pointed at.
     """
-    if not local_ip:
-        return None
-    try:
-        return local_ip if ipaddress.ip_address(local_ip).is_private else None
-    except ValueError:
-        return None
+    return local_ip if local_ip and is_lan_address(local_ip) else None
 
 
 def check_local_ports(ports: Mapping[str, int]) -> None:

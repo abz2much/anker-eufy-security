@@ -170,7 +170,7 @@ provides where it lives.
 | `cloud.pending_logins` | per login scope, the pending login a verification-code answer is sent inside: key ident, shared key, pending auth token and user id, the password wrap's client public key and ECDH secret, the `ab`, expiry (15 min) | when a login raises a verification-code challenge with a pending token; cleared by that scope's next successful login or a refused answer |
 | `cloud.listed.<region>` | how many devices the region's last device list held, and when | on every device-list fetch that asked the region |
 | `replaced` | when another client's login ended the session | set by a kick-out; blocks every non-forced login until `async_login(force=True)` or `async_reauthenticate(…, take_over=True)` |
-| `stations.<serial>` | the owner's account id, the ECC private key of each cipher fetched for it (`ciphers`) and its RSA private key when served (`rsa_ciphers`), `cipher_id` (the cipher the station names in its handshake: 40 on a HomeBase 3, 98 on a T8170), the key-refresh latch, a standalone camera's device session key (`dsk`, with its expiry) and each camera's preset slots (`presets`) | keys on a P2P handshake failure: one fetch, then latched until a handshake succeeds, the latch is reset, or 24 h pass. `dsk` when a wake needs it and less than 5 min of it remain; `presets` on each preset read that differs |
+| `stations.<serial>` | the owner's account id, the ECC private key of each cipher fetched for it (`ciphers`) and its RSA private key when served (`rsa_ciphers`), `cipher_id` (the cipher the station names in its handshake: 40 on a HomeBase 3, 98 on a T8170), the key-refresh latch, a standalone camera's device session key (`dsk`, with its expiry), how its last link came up (`link_path`: `lan` / `rendezvous`, with `lan_reply_blocked: true` when that link needed a punch because its LAN reply was blocked) and each camera's preset slots (`presets`) | keys on a P2P handshake failure: one fetch, then latched until a handshake succeeds, the latch is reset, or 24 h pass. `dsk` when a wake needs it and less than 5 min of it remain; `link_path` (and `lan_reply_blocked`) when a link comes up on another path or flag than the stored one, dropped when a whole device list (fetched, or the cached one) no longer names the station, kept on a list the cloud did not answer whole (`device_list_source` `fallback` / `unsent`); a cache without it loads as before; `presets` on each preset read that differs |
 | `devices` | the `get_devs_list` entries, each reduced to the fields `CloudDevice` reads (serials, type, name, channel, DID, IP, firmware versions, `app_conn`, the product code `device_new_pn`, the member's `admin_user_id` and `member_type`, and `cloud_region`, the region that listed it); the cloud's `params` snapshot for a station and a device reached on demand, and a station's `time_zone`. The member's e-mail and phone, MAC addresses and the rest never reach the store | only on `async_discover(refresh=True)`; an entry stored with more fields is reduced on load |
 | `push` | FCM credentials, the registered token, recent push ids and guard-mode times | on push start; delivery state written at most 30 s after it changes, and on close |
 | `refresh_attempts` | when the owner id (account-wide) and each station's cipher key were last force-fetched | with those fetches |
@@ -456,16 +456,45 @@ Let the config flow say what it found, and let the user decide. The library
 classifies; the flow only presents the choice and stores the answer.
 
 `await eufy.async_station_choices()` lists every station on the account (each HomeBase,
-and each standalone device) as a `StationChoice`. It runs one LAN probe, builds
-nothing and opens no session:
+and each standalone device) as a `StationChoice`. It runs one LAN probe, then one
+rendezvous probe for the mains stations the LAN probe did not find; it builds nothing
+and opens no session:
 
 | field | meaning |
 |---|---|
-| `reach` | `Reach.LOCAL` if the station answered LAN discovery, else `Reach.REMOTE` |
+| `reachable_via` | `ConnectPath.LAN` (`"lan"`) if the station answered LAN discovery, `ConnectPath.RENDEZVOUS` (`"rendezvous"`) if a punch through its rendezvous servers reached it (another subnet behind a stateful gateway, or another site; see the network section), None if neither did |
+| `reach` | `Reach.LOCAL` when `reachable_via` is set, else `Reach.REMOTE`. A station reached through its servers gets the same full session as one on the LAN |
+| `rendezvous` | the rendezvous probe's outcome: True (reached, or a built station whose last link came through the servers: its last link of this run, or before the first the path stored from an earlier run), False (no punch within the probe's time), None (not tried or not finished: it answered the LAN probe, it is reached on demand, it lists no servers, its DSK could not be fetched, it is built and its last link did not come through the servers, or its probe was still running when the probe budget ended) |
+| `connects_on_demand` | a battery station reached on demand; one that did not answer the LAN probe is **not** probed through its servers, since the punch would wake it |
 | `sub_devices` | the cameras and sensors paired to it; they are included with it |
 | `supported` | whether the device catalog knows the model |
 | `enabled_by_default` | local **and** supported |
-| `path` | its `LanPath`, for the network step below |
+| `path` | its `LanPath`, for the network step below (`answered` is the LAN probe's answer alone) |
+
+The rendezvous probe: for each station that did not answer the LAN probe, lists
+rendezvous servers in its cloud entry and is not reached on demand, the library fetches
+its DSK (cached, one `get_dsk_keys` per station; never a login), sends the servers its
+request and punches the addresses they name. The station's first `PUNCH_PKT` is the
+success; the library then sends it a `CLOSE`. No session is set up, no credentials are
+read. Up to 4 stations are probed at a time, each for 5 s, all within 20 s
+(`client.RENDEZVOUS_PROBE_CONCURRENCY`, `RENDEZVOUS_PROBE_TIMEOUT`,
+`RENDEZVOUS_PROBE_BUDGET`); cancelling the call cancels its probes. A cloud failure
+arrives as a `CloudProblem`, and the station keeps its LAN result (`rendezvous` None).
+One with `NoCachedSessionError` is no reauth: the probe never logs in, and the next
+ordinary call does. A built station is not probed, connected or not (its own session
+reconnects it, through the servers too): `rendezvous` is True when its last link came
+through the servers, from this run or, before its first link, stored from an earlier one.
+The probe does not read this host's networks: a station on Home Assistant's own network
+that does not answer the LAN probe (a host firewall drops its reply) but answers the
+punch shows `reachable_via` `"rendezvous"` here, which is what its connects need, while
+its session, once built, reports `connect_path` `"lan"` (the punch came from an address
+in the host's networks) and its `lan_path` warns `lan_reply_blocked`.
+
+A battery station that did not answer the LAN probe stays `Reach.REMOTE` with
+`rendezvous` None: whether its servers would reach it cannot be known without waking
+it. Included as `Reach.LOCAL`, it is woken through its servers for each command (see
+*A battery station* under *Coordinator per station*), so offer that choice for it,
+unselected, with the battery cost named.
 
 What each reach gives:
 
@@ -482,12 +511,15 @@ the flow before the user enables one.
 
 **Config flow step "stations"** (after the login step):
 
-- Headline: "Found N stations on your local network, with M cameras and sensors.
+- Headline: "Found N stations Home Assistant can reach, with M cameras and sensors.
   They will be added with local control."
 - One multi-select: every local station, preselected when `enabled_by_default`, listed
-  with its sub-devices. Then every remote station, **not** preselected, labelled
-  "remote: events only, no arming, settings or live view". Show an unsupported station
-  as "not supported yet" and leave it unselected.
+  with its sub-devices; one whose `reachable_via` is `"rendezvous"` labelled "reachable
+  through eufy's servers (local control)". Then every remote station, **not**
+  preselected, labelled "remote: events only, no arming, settings or live view"; a
+  remote one with `connects_on_demand` also "battery camera: not checked through eufy's
+  servers, which would wake it". Show an unsupported station as "not supported yet"
+  and leave it unselected.
 - Store the answer as `entry.options["stations"] = {serial: "local" | "remote"}` and pass
   it back as `EufySecurity(stations={sn: Reach(value) for sn, value in …})`. A station
   missing from it is left out: the library builds nothing for it, does not claim it
@@ -496,7 +528,7 @@ the flow before the user enables one.
 
 **Options flow:** the same step, run again with a fresh `async_station_choices()`.
 Changing it reloads the entry. The probe is safe on a loaded entry: it never sends a
-`LAN_SEARCH` to a station that has a connected session, and reports that station as local
+`LAN_SEARCH` or a rendezvous request for a station that has a connected session, and reports that station as local
 from the session itself (`observed_ip` is the address it is connected to). While any
 station is connected the probe also sends no broadcast, so an unconnected station is
 found only at its known address (`station_hosts`, or the cloud's): one more reason for
@@ -534,20 +566,78 @@ What the library relies on:
 - **Both rules name the station's address**, so the station needs a fixed IP: a DHCP
   reservation on the router. The same applies to a standalone camera, which the
   library treats as its own station.
+- **A station on another subnet can need no rule.** Every station whose cloud entry
+  lists rendezvous servers can also connect through them, as the eufy app does
+  ([rendezvous connect](../protocol/p2p-transport.md#rendezvous-connect)): the servers
+  name the station's addresses, the library punches them, and the station's answer
+  returns as a reply. That holds only when every filter on the way (the host firewall
+  and the gateway) admits replies by connection tracking; a stateless filter still needs
+  the station's UDP admitted, as above. What it needs besides is outbound UDP to the
+  servers (port 32100, also 32101-32102) and from Home Assistant to the station, and a
+  cloud DSK per station (cached). A held station runs it beside the LAN search from
+  the first attempt when its last link counted as `"rendezvous"` (kept in the session
+  cache across restarts) or a fresh DSK is cached; otherwise after one failed LAN
+  attempt, so a station that never reached the servers needs no cloud call, and only
+  its very first connect takes about 6 s longer. A link counts as `"rendezvous"` only
+  when the station answers from outside the host's own networks (its interfaces'
+  subnets); a station on the host's LAN is `"lan"` however its answer arrived. The
+  integration does nothing for it;
+  `stats().connect_path` says which path a station's link took (`"lan"` /
+  `"rendezvous"`; before the first link of a run, the one kept from the last run),
+  worth showing in diagnostics.
+- **A station on Home Assistant's own network whose LAN reply a host firewall drops**
+  (ufw, firewalld or nftables admitting only `ct state established`: the station answers
+  a search from a random port, a new flow) still connects: after the on-link grace
+  (2.5 s) the library punches its LAN address, and its answer to the punch is a reply,
+  so each of its connects comes up about 2.5 s later than a plain LAN link would
+  (tested against fakes, not verified on hardware yet).
+  The link counts as `"lan"`, but every connect then needs internet access, eufy's
+  servers and a DSK, so the station does not come back in an internet outage. The
+  library records it per station: `station.lan_path.warnings` holds
+  `PathWarning.LAN_REPLY_BLOCKED` (read from the session at each access, no probe
+  needed; `stats().lan_reply_blocked` too), with `LanPath.station_ip` for the rule and
+  `LanPath.local_port` (0 = none pinned) for wording the fix: allow all UDP from the
+  station, or pin a local port and allow UDP from the station to it. A later link that
+  comes up from a LAN reply (the rule added) clears it. Only a link whose search went to
+  the station's address counts (a broadcast, or the searched address): a station that
+  moved away from a stale configured address is not flagged, but on a host with
+  several networks a broadcast leaves by one interface, so a station on another
+  interface's network that links through the punch is. A station without a firewall
+  that ignores the first three searches (the third goes out at 2 s) and answers a later
+  one is punched and flagged the same way, until its next link from a LAN reply: word
+  the repair as likely, not certain. The record is kept in the
+  session cache with the link path, so after a restart the warning shows before the
+  station's first link and that link runs the rendezvous from its first attempt. Pass the host's networks as
+  `EufySecurity(local_networks=…)`, built from Home Assistant's network adapters
+  (`network.async_get_adapters(hass)`: each `ipv4` entry's `address` and
+  `network_prefix` as `IPv4Network(f"{address}/{network_prefix}", strict=False)`):
+  they are used instead of the library's own interface reader (Linux only). Without
+  either there is no grace and no warning, and a punched link counts as `"rendezvous"`;
+  an empty list says the host has no network to treat as on-link, with the same outcome
+  (the interfaces are not read). An entry that is no `IPv4Network` raises `ValueError`
+  at construction.
+- **Without a configured or cloud address**, discovery also searches the LAN address the
+  station reports (parameter 1176) by unicast, beside the broadcast; its `LanPath` shows
+  `host_source` `device` and still warns `broadcast_only`: that address follows the
+  station's lease until it is fixed.
 
 The library describes each station's path; the integration only presents it:
 
 | library | use in Home Assistant |
 |---|---|
-| `await eufy.async_probe_lan()` | one `LanPath` per station, after one LAN discovery (broadcast plus each configured address): no session, no cloud |
-| `LanPath` | `station_ip`, `host`, `host_source` (`configured` / `cloud` / `broadcast`), `cloud_ip`, `observed_ip` (where it answered), `answered`, `local_port` as description placeholders |
-| `LanPath.warnings` (`PathWarning`) | one translation key each: `broadcast_only`, `ephemeral_port`, `no_lan_reply`, `address_changed` |
+| `await eufy.async_probe_lan()` | one `LanPath` per station, after one LAN discovery (broadcast plus each known address: configured, the cloud's or the one the station reports): no session, no cloud |
+| `LanPath` | `station_ip`, `host`, `host_source` (`configured` / `cloud` / `device` / `broadcast`), `cloud_ip`, `observed_ip` (where it answered), `answered`, `local_port` as description placeholders |
+| `LanPath.warnings` (`PathWarning`) | one translation key each: `broadcast_only`, `ephemeral_port`, `no_lan_reply`, `address_changed`, `lan_reply_blocked` |
+| `station.lan_path` | a built station's `LanPath` from its session, at each access: `lan_reply_blocked` appears once a link needed the punch and goes with the next LAN link; a path whose `answered` is True (a probe got the station's reply) never carries it; `async_probe_lan()` reports a connected station whose link needed the punch with `answered` None, so the warning stays |
 | `suggest_local_ports(serials, taken=…)` | pre-fills a port per station; stable for the same stations |
 | `EufySecurity(local_ports={serial: port}, station_hosts={serial: ip})` | what the options flow stores and setup passes back |
 
 - **Probe duration:** `async_station_choices()` and `async_probe_lan()` listen for
   `LAN_DISCOVERY_TIMEOUT` (5 s) by default. A battery or solar standalone camera answers
   late (a T8170 after 2.1 s), so do not shorten it; show a progress step instead.
+  `async_station_choices()` adds its rendezvous probe after that when a mains station
+  did not answer (up to `RENDEZVOUS_PROBE_BUDGET`, 20 s; about the DSK fetch plus a
+  fraction of a second for a station that answers).
 - **Config flow:** after the stations step, show a "network" step for the local
   stations: each one's path (the `StationChoice.path` from that step, or
   `async_probe_lan()` once they are built), its warnings, and the two firewall options
@@ -562,7 +652,11 @@ The library describes each station's path; the integration only presents it:
 - **Repairs:** when a station stays unreachable (its entry in the `async_start()` result,
   or a `ConnectionChanged(False)` whose cause is `unreachable` and that lasts), raise a repair issue
   carrying the placeholders of a fresh `async_probe_lan()`. `address_changed` deserves an
-  issue of its own: the station's address has probably changed.
+  issue of its own: the station's address has probably changed. `lan_reply_blocked` on a
+  built station's `lan_path` suits a warning issue that names the station and its
+  `station_ip` and offers the two firewall rules (the same fix `ephemeral_port` or a
+  pinned port's rule would state: say it once); re-decide it when a link comes up
+  (`ConnectionChanged(connected=True)`) and withdraw it once the warning is gone.
 
 The CLI does the same: `eufy-security login` prints the advice once the session is
 cached, and `eufy-security network` prints it on demand.
@@ -3167,8 +3261,12 @@ async def async_get_config_entry_diagnostics(hass, entry):
   and `media_codec_changes` (see `docs/protocol/media.md`). For "events stopped", compare
   `seconds_since_last_event` with `seconds_since_last_probe` and look at
   `state_frames_by_encryption`, `dropped_undecodable` and `wrong_port_drops`; for a flapping
-  station, `reconnects`, `handshake_failures`, `key_refreshes` and `last_error` (a class
-  name, kept after recovery). Add `eufy.push_running` and the deduplicator's counters.
+  station, `reconnects`, `handshake_failures`, `key_refreshes`, `last_error` (a class
+  name, kept after recovery), `connect_path` and `connects_by_path` (whether its links
+  come up over LAN discovery or through its rendezvous servers), and `lan_reply_blocked`
+  (a station on the host's network whose LAN replies a firewall drops, linked through a
+  punch). Add `eufy.push_running`
+  and the deduplicator's counters.
 
 Each station's `stats()` (`SessionStats`) also carries `conn_init_version` (8: ECIES,
 anything else: the legacy RSA handshake) and the `cipher_id` it named, once a CONN_INIT
