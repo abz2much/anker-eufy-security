@@ -4949,6 +4949,57 @@ def _p(width: int, height: int) -> MediaFrame:
     return MediaFrame(kind=MediaKind.VIDEO, data=b"p", width=width, height=height)
 
 
+class _EndingStream:
+    """One keyframe; ``closed`` and ``ended`` take the given values once it is delivered."""
+
+    def __init__(self, *, closed: bool, ended: bool) -> None:
+        self.closed = self.ended = False
+        self._then = (closed, ended)
+        self._sent = False
+
+    async def __aenter__(self) -> _EndingStream:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
+
+    def __aiter__(self) -> _EndingStream:
+        return self
+
+    async def __anext__(self) -> MediaFrame:
+        if self._sent:
+            raise StopAsyncIteration
+        self._sent = True
+        self.closed, self.ended = self._then
+        return _key(b"held", 1280, 720)
+
+
+@pytest.mark.parametrize(
+    ("closed", "ended"),
+    [
+        (False, False),
+        (True, False),  # queued before the stream failed: taken, as before the failure
+        (True, True),
+    ],
+)
+async def test_a_settled_keyframe_is_not_one_the_stream_end_released(
+    standalone_station: Station, monkeypatch: pytest.MonkeyPatch, *, closed: bool, ended: bool
+) -> None:
+    """A keyframe read after the stream ended by itself was held until its idle end and
+    may predate the settle deadline: it is not taken."""
+
+    async def live(channel: int, **_kwargs: Any) -> _EndingStream:
+        return _EndingStream(closed=closed, ended=ended)
+
+    monkeypatch.setattr(standalone_station, "_session_live", live)
+    settled = standalone_station._ptz._settled_keyframe(0, 0.0, wait=False)
+    if ended:
+        with pytest.raises(DeviceTimeoutError, match="before the camera settled"):
+            await settled
+    else:
+        assert await settled == b"held"
+
+
 async def test_a_held_size_keyframe_waits_out_the_climb() -> None:
     """A woken T8170's climb: the keyframe that opened the size the stream settled on."""
     climb = [

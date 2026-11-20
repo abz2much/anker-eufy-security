@@ -15,6 +15,7 @@ Loggers follow the module path, so one subsystem can be turned up on its own:
 | `eufy_home_security.p2p.transport` | bind, LAN_SEARCH / PUNCH_PKT / P2P_RDY, the rendezvous request and each PUNCH_TO punched, every DRW chunk and ack, retransmits, keepalive (sampled), CLOSE, link down |
 | `eufy_home_security.p2p.xzyh` | duplicate and out-of-order chunks (sampled) |
 | `eufy_home_security.p2p.broadcast` | a shared live stream's subscribers falling behind, resolution changes, resize grace |
+| `eufy_home_security.p2p.encoder` | a video frame dropped before muxing because it does not start with a start code (WARNING, once per 5 minutes per stream) |
 | `eufy_home_security.p2p.session` (and its submodules) | handshake steps and keys, every request (label, resends, reply time), command-lock waits, parameter changes, guard mode, camera pushes and their record binding, still fetches, trigger frames, media streams (see [Tracing a detection](#tracing-a-detection)) |
 | `eufy_home_security.devices.td` | thing-description properties skipped or units dropped while reading a cloud TD |
 | `eufy_home_security.station` (and its submodules) | event thumbnail source and history lookup outcome |
@@ -132,7 +133,7 @@ the full payloads are on the wire logger only. In order:
 | `no trigger_frame of T8160***7890 in 7 day(s) of history: 27 record(s) read, 25 of the camera; devices …; device types …; skipped …; storage_path shapes …; fields of the camera's records …` | `station` | a camera image lookup that found no usable row: the rows read, the camera's, per device (redacted) and device type, why each was skipped (`other device`, `no device`, `no storage_path`, `storage_path of another shape`), the rejected paths' root directory and extension only, and the field names the rows carried; once per 5 minutes for the same counts |
 | `trigger frame on channel 1: short-lived session open in 0.62s` / `… closed after 1.40s, 221961 bytes` | `p2p.session` | the trigger frame's second session |
 | `guard mode write waited 2.95s for the command lock` | `p2p.session` | a wait of 50 ms or more behind another request (label: `image fetch`, `history query`, `parameter read`, `guard mode write`, `command`, `media open` …) |
-| `opening live media (cmd 1003) on channel 0` / `media (cmd 1003 ch0) closed after 4.2s` | `p2p.session` | live and recording streams (never one line per frame) |
+| `opening live media (cmd 1003) on channel 0` / `media (cmd 1003 ch0) closed after 4.2s; 0 frame(s) dropped for a slow reader, 0 skipped waiting for a keyframe` | `p2p.session` | live and recording streams (never one line per frame); the second line once per stream, at every end: closed by the client, the station's end-of-playback frame (after `ended by the station`) or the idle timeout (after `quiet for 3.0s; delivering its last frame` when a frame was held) |
 
 `RecordNotFoundError` messages name the outcome, never the record id, so a consumer can
 log them as they are.
