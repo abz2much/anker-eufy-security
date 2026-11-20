@@ -34,10 +34,10 @@ from .devices.model_settings import (
     bundled_td_version,
     canonical_code,
     product_code_of,
+    reached_on_demand,
     settings_of,
 )
 from .devices.td import parse_thing_description, td_version
-from .devices.types import connects_on_demand
 from .devices.webrtc import app_webrtc_only, route_device
 from .diagnostics import AccountReport, async_account_report
 from .events import (
@@ -192,15 +192,32 @@ def _account_codes(devices: Sequence[CloudDevice]) -> tuple[str, ...]:
     return tuple(sorted(c for c in codes if c is not None))
 
 
-def _load_settings(devices: Sequence[CloudDevice]) -> None:
+def _load_settings(devices: Sequence[CloudDevice]) -> frozenset[str]:
     """Load the settings file of every device's model (blocking: package data, a worker
     thread only), so :meth:`Station.settings_for` reads no disk on the loop. A malformed
-    file is left for :meth:`Station.settings_for` to raise."""
+    file is left for :meth:`Station.settings_for` to raise.
+
+    Returns :func:`_on_demand_serials` of ``devices``.
+    """
     for device in devices:
         code = product_code_of(device.raw.get("device_new_pn"), device.device_sn)
         if code is not None:
             with contextlib.suppress(ModelDataError):
                 settings_of(code)
+    return _on_demand_serials(devices)
+
+
+def _on_demand_serials(devices: Iterable[CloudDevice]) -> frozenset[str]:
+    """The serials of ``devices`` reached only on demand as their own station
+    (:func:`~.devices.model_settings.reached_on_demand`). Blocking: package data, a worker
+    thread only."""
+    return frozenset(
+        device.device_sn
+        for device in devices
+        if reached_on_demand(
+            device.device_sn, product_code_of(device.raw.get("device_new_pn"), device.device_sn)
+        )
+    )
 
 
 def _bundled_version(code: str) -> int | None:
@@ -323,8 +340,11 @@ class EufySecurity:
         cloud's alarm pushes become one :class:`~.events.AlarmChanged` per start and
         per end, and a change of guard mode to a disarmed mode ends an alarm.
 
-        A station reached on demand (a battery device,
-        :func:`~.devices.types.connects_on_demand`) holds no session. Its state comes from
+        A station reached on demand (a battery device: on the eufy app's list, or a
+        camera or doorbell whose bundled settings declare it a battery device,
+        :func:`~.devices.model_settings.reached_on_demand`) holds no session; the
+        decision is taken when the station is built, and the setup probe of
+        :meth:`async_station_choices` takes the same one. Its state comes from
         the cloud device list's parameter snapshot: kept in the cache, applied when the
         station is built, and fetched again every ``cloud_state_refresh`` seconds (one
         device-list call for the account) while :meth:`async_start` runs; pushes update it
@@ -669,7 +689,7 @@ class EufySecurity:
             served = self._claims.claim(self.cache.account, included)
         self.stations_served_elsewhere = tuple(d for d in included if d.device_sn not in served)
         self._not_served = frozenset(d.device_sn for d in candidates if d.device_sn not in served)
-        await asyncio.to_thread(_load_settings, devices)
+        on_demand_stations = await asyncio.to_thread(_load_settings, devices)
         await self._async_scan_models(devices, refresh=refresh or rescan_regions)
         for device in candidates:
             serial = device.device_sn
@@ -684,6 +704,7 @@ class EufySecurity:
             if self._reach(serial) is Reach.REMOTE:
                 self.remote_stations[serial] = RemoteStation(device=device, sub_devices=sub_devices)
                 continue
+            on_demand = serial in on_demand_stations
             session = StationSession(
                 serial,
                 self._credential_provider(serial),
@@ -693,7 +714,7 @@ class EufySecurity:
                 did=device.p2p_did,
                 expect_channels=station_channels(device, sub_devices),
                 block_aliases=station_block_aliases(device),
-                on_demand=connects_on_demand(serial),
+                on_demand=on_demand,
                 wake_provider=self._wake_provider(device),
                 key_refresh=_CachedKeyRefreshLatch(self.cache, serial),
                 cloud_problems_reported=True,
@@ -1095,12 +1116,15 @@ class EufySecurity:
             )
             for device in candidates
         ]
+        on_demand = await asyncio.to_thread(_on_demand_serials, candidates)
         probed = await self._probe(paths, candidates, timeout=timeout, port=port)
         punched = await self._probe_rendezvous(
             [
                 device
                 for device, path in zip(candidates, probed, strict=True)
-                if not path.answered and device.device_sn not in self.stations
+                if not path.answered
+                and device.device_sn not in self.stations
+                and device.device_sn not in on_demand
             ]
         )
         for serial, station in self.stations.items():
@@ -1112,6 +1136,7 @@ class EufySecurity:
                 sub_devices=tuple(children.get(device.device_sn, ())),
                 path=path,
                 rendezvous=punched.get(device.device_sn),
+                connects_on_demand=device.device_sn in on_demand,
             )
             for device, path in zip(candidates, probed, strict=True)
         ]
@@ -1119,10 +1144,9 @@ class EufySecurity:
     async def _probe_rendezvous(self, devices: list[CloudDevice]) -> dict[str, bool | None]:
         """Whether each of ``devices`` answers a punch through its rendezvous servers,
         by serial; None for a station without servers or whose DSK cannot be fetched,
-        and a station reached on demand or still probed at the budget's end is left out
-        (see :meth:`async_station_choices`)."""
-        targets = [device for device in devices if not connects_on_demand(device.device_sn)]
-        if not targets:
+        and a station still probed at the budget's end is left out (see
+        :meth:`async_station_choices`, which passes no station reached on demand)."""
+        if not devices:
             return {}
         limit = asyncio.Semaphore(RENDEZVOUS_PROBE_CONCURRENCY)
 
@@ -1152,7 +1176,7 @@ class EufySecurity:
                 _LOGGER.debug("%s: rendezvous probe answered", serial)
                 return True
 
-        tasks = {device.device_sn: asyncio.create_task(probe(device)) for device in targets}
+        tasks = {device.device_sn: asyncio.create_task(probe(device)) for device in devices}
         pending: set[asyncio.Task[bool | None]] = set(tasks.values())
         try:
             _done, pending = await asyncio.wait(tasks.values(), timeout=RENDEZVOUS_PROBE_BUDGET)

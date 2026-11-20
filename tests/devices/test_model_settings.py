@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import functools
 import json
+import logging
 import operator
 from collections.abc import Iterator
 from dataclasses import replace
@@ -15,6 +16,7 @@ import pytest
 
 from eufy_home_security.devices import model_settings
 from eufy_home_security.devices.model_settings import (
+    BATTERY_DEVICE_FLAG,
     Setting,
     SettingControl,
     SettingKind,
@@ -24,8 +26,10 @@ from eufy_home_security.devices.model_settings import (
     WritePath,
     arms_by_scalar,
     bundled_codes,
+    declares_battery,
     mode_table_settings,
     product_code_of,
+    reached_on_demand,
     settings_of,
 )
 from eufy_home_security.devices.param_info import STATE_PARAM_INFO
@@ -177,6 +181,91 @@ def test_without_a_cloud_code_the_serial_names_the_product(serial: str, code: st
 
 def test_the_cloud_code_wins_over_the_serial() -> None:
     assert product_code_of("t8410", "T8410X5000000001") == "T8410"
+
+
+@pytest.mark.parametrize(
+    ("serial", "code", "expected"),
+    [
+        ("T81A0P0000000001", "T81A0", True),  # a camera listing the battery property
+        ("T8213P0000000001", "T8213", True),  # a doorbell
+        ("T84A1P0000000001", "T84A1", False),  # a camera listing settings, no battery
+        ("T81A0P0000000001", "T9999", None),  # no settings: unknown
+        ("T9000P0000000001", "T9000", None),  # a station lists one: not this rule's
+        ("T8910P0000000001", "T8910", None),  # a sensor lists one: not this rule's
+        ("T0000P0000000001", "T81A0", None),  # an uncatalogued serial
+    ],
+)
+def test_declares_battery_reads_a_camera_or_doorbells_settings(
+    serial: str, code: str, expected: bool | None
+) -> None:
+    settings = settings_of(code, standalone=True).values()
+    assert declares_battery(serial, settings) is expected
+
+
+@pytest.mark.parametrize(
+    ("serial", "code", "expected"),
+    [
+        ("T8170P0000000001", None, True),  # on the app's list: no model needed
+        ("T81A0P0000000001", "T81A0", True),  # off the list, the battery device flag
+        ("T8213P0000000001", "T8213", True),  # a doorbell
+        ("T81A0P0000000001", None, False),  # no model: unknown
+        ("T84A1P0000000001", "T84A1", False),  # the flag declared False
+        ("T8203P0000000001", "T8203", False),  # a doorbell without the flag
+        ("T8030P0000000001", "T8030", False),  # a station without it
+        ("T9000P0000000001", "T9000", False),  # a station with it: not this rule's
+        ("T8530P0000000001", "T8530", False),  # a lock with it: not this rule's
+        ("T8530P0000000001", "T81A0", False),  # the serial's kind decides, not the file's
+    ],
+)
+def test_reached_on_demand_takes_the_app_list_or_the_battery_device_flag(
+    serial: str, code: str | None, expected: bool
+) -> None:
+    assert reached_on_demand(serial, code) is expected
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [
+        ({"default": True}, True),
+        ({"default": False}, False),
+        ({"default": None}, False),
+        (None, False),  # no flag
+    ],
+)
+def test_reached_on_demand_reads_the_flags_declared_default_as_its_own_station(
+    monkeypatch: pytest.MonkeyPatch, flag: dict[str, bool | None] | None, expected: bool
+) -> None:
+    """Only the standalone context's settings count, and only a declared default of True."""
+
+    def settings(code: str, *_args: object, standalone: bool = False) -> dict[str, Setting]:
+        if not standalone or flag is None:
+            return {}
+        setting = Setting(
+            key=BATTERY_DEVICE_FLAG,
+            product_code=code,
+            name="Battery device",
+            kind=SettingKind.BOOL,
+            default=flag["default"],
+        )
+        return {BATTERY_DEVICE_FLAG: setting}
+
+    monkeypatch.setattr(model_settings, "settings_of", settings)
+    assert reached_on_demand("T84A1P0000000001", "T84A1") is expected
+
+
+def test_a_malformed_settings_file_is_not_reached_on_demand(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def malformed(*_args: object, **_kwargs: object) -> dict[str, Setting]:
+        raise ModelDataError("malformed")
+
+    monkeypatch.setattr(model_settings, "settings_of", malformed)
+    with caplog.at_level(logging.DEBUG, logger=model_settings.__name__):
+        assert reached_on_demand("T81A0P0000000001", "T81A0") is False
+    assert [r.getMessage() for r in caplog.records] == [
+        "T81A0***0001: the settings file of T81A0 is malformed: held session"
+    ]
+    assert reached_on_demand("T8170P0000000001", "T8170") is True  # the list needs no file
 
 
 # ── decode ──────────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ import binascii
 import functools
 import importlib.resources
 import json
+import logging
 import math
 import operator
 import re
@@ -27,6 +28,7 @@ from importlib.resources.abc import Traversable
 from types import MappingProxyType
 from typing import Any, Final, cast
 
+from .._logging import redact_serial
 from ..exceptions import ModelDataError, UnsupportedError
 from ..models import PARAM_BATTERY
 from ..p2p._json import json_int
@@ -49,7 +51,7 @@ from .settings import (
     SettingUnit,
 )
 from .timezones import TIMEZONE_DOMAIN, decode_zone, encode_zone, zone_ids
-from .types import model_for_serial, serial_product_code
+from .types import DeviceKind, connects_on_demand, model_for_serial, serial_product_code
 
 __all__ = [
     "DEFAULT_BATTERY_READS",
@@ -72,8 +74,10 @@ __all__ = [
     "bundled_codes",
     "bundled_td_version",
     "canonical_code",
+    "declares_battery",
     "mode_table_settings",
     "product_code_of",
+    "reached_on_demand",
     "sd_status_groups",
     "settings_of",
     "sort_settings",
@@ -83,6 +87,8 @@ type Value = bool | int | float | str
 type Recipe = Mapping[str, Any]
 
 SCHEMA_VERSION: Final = 3
+_LOGGER = logging.getLogger(__name__)
+
 _DATA_PACKAGE: Final = "eufy_home_security.devices.data.models"
 _INDEX: Final = "INDEX.json"  # the generator's list of the bundled codes
 IDENTIFIER: Final = re.compile(r"[a-z0-9_]+")
@@ -110,6 +116,15 @@ The eufy app shows a camera's battery and charging state only when its thing
 description has this property (and the product's feature flags allow it); a
 mains-powered camera or a wired doorbell, whose block reports a charging field too,
 gets a power-source icon instead. See :meth:`~..station.Station.has_battery`.
+"""
+BATTERY_DEVICE_FLAG: Final = "device_is_battery_device"
+"""The setting whose declared default marks a model as a battery device **[declared]**: a
+constant of the model's settings, read from no device. See :func:`reached_on_demand`.
+"""
+BATTERY_KINDS: Final = frozenset({DeviceKind.CAMERA, DeviceKind.DOORBELL})
+"""The device kinds :func:`declares_battery` and :func:`reached_on_demand` read a battery
+from the settings of: the eufy app's rule is the camera card's. A sensor, lock or keypad
+declares its battery differently, and a station model's battery is not this rule's.
 """
 _PRODUCT_CODE: Final = re.compile(r"[A-Za-z0-9]{1,32}")
 _SN_SLOTS: Final = frozenset({"$device_sn", "$station_sn"})
@@ -1006,6 +1021,51 @@ def product_code_of(device_new_pn: object, serial: str) -> str | None:
         return code
     model = model_for_serial(serial)
     return model.model if model is not None else None
+
+
+def declares_battery(serial: str, settings: Iterable[Setting]) -> bool | None:
+    """Whether the camera or doorbell ``serial`` runs on a battery, as the eufy app
+    decides whether to show one **[declared]**: True when ``settings`` (its settings
+    list) has :data:`BATTERY_PROPERTY`, False when the list is not empty and lacks it.
+
+    None when ``serial`` is of another kind or no catalogued model
+    (:data:`BATTERY_KINDS`), and when ``settings`` is empty (unknown).
+    """
+    model = model_for_serial(serial)
+    if model is None or model.kind not in BATTERY_KINDS:
+        return None
+    keys = {setting.key for setting in settings}
+    return (BATTERY_PROPERTY in keys) if keys else None
+
+
+def reached_on_demand(serial: str, product_code: str | None) -> bool:
+    """Whether the client reaches the station ``serial`` (model ``product_code``) only on
+    demand, never over a held session: it is on the eufy app's on-demand list
+    (:func:`~.types.connects_on_demand`), or it is a camera or doorbell
+    (:data:`BATTERY_KINDS`) whose bundled settings, as its own station, give
+    :data:`BATTERY_DEVICE_FLAG` the declared default True.
+
+    The flag part is the library's rule: the app holds no session while it is in the
+    background, and its list leaves out newer battery models. It goes by the model's
+    declared flag, not by how a unit is powered. A model without a bundled file, without
+    the flag, or with a malformed file keeps a held session. Reads package data on the
+    first call per model: call it off the event loop.
+    """
+    if connects_on_demand(serial):
+        return True
+    model = model_for_serial(serial)
+    if product_code is None or model is None or model.kind not in BATTERY_KINDS:
+        return False
+    try:
+        flag = settings_of(product_code, standalone=True).get(BATTERY_DEVICE_FLAG)
+    except ModelDataError:
+        _LOGGER.debug(
+            "%s: the settings file of %s is malformed: held session",
+            redact_serial(serial),
+            product_code,
+        )
+        return False
+    return flag is not None and flag.default is True
 
 
 @functools.cache
