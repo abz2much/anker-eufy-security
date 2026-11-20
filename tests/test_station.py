@@ -8,7 +8,7 @@ import json
 import logging
 import math
 import time
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,14 +23,16 @@ from eufy_home_security import MediumState
 from eufy_home_security._logging import redact_serial
 from eufy_home_security.cloud.models import CloudDevice
 from eufy_home_security.devices import model_settings
+from eufy_home_security.devices._live_open_data import LIVE_OPEN
 from eufy_home_security.devices._ptz_data import PTZ
+from eufy_home_security.devices._webrtc_routing_data import ROUTE_PROPERTIES
 from eufy_home_security.devices.capabilities import (
     PTZ_ACTION_NEEDS,
     PTZ_ACTIONS,
     Capability,
     DeviceProfile,
 )
-from eufy_home_security.devices.live_open import NVR_OPENS, LiveOpen, live_open
+from eufy_home_security.devices.live_open import NVR_OPENS, LiveOpen, has_live_open, live_open
 from eufy_home_security.devices.live_view import (
     LENS_LIST_PARAM,
     Lens,
@@ -63,7 +65,7 @@ from eufy_home_security.devices.settings import Scope
 from eufy_home_security.devices.station_config_support import StationFeature
 from eufy_home_security.devices.support import Evidence, Support
 from eufy_home_security.devices.timezones import encode_zone, zone_ids
-from eufy_home_security.devices.types import DeviceKind
+from eufy_home_security.devices.types import MODELS, DeviceKind
 from eufy_home_security.events import (
     CameraBusyChanged,
     DevicesChanged,
@@ -81,6 +83,7 @@ from eufy_home_security.exceptions import (
     CommandNotAppliedError,
     CommandRejectedError,
     CommandUnsupportedError,
+    CommunicationError,
     ConfigChangedError,
     DeviceBusyError,
     DeviceTimeoutError,
@@ -2947,10 +2950,14 @@ def test_station_devices_hub_vs_standalone(
 
 
 async def _standalone(
-    fake: FakeStation, serial: str, *, raw: dict[str, Any] | None = None
+    fake: FakeStation,
+    serial: str,
+    *,
+    raw: dict[str, Any] | None = None,
+    firmware: str | None = None,
 ) -> Station:
     """A standalone camera ``serial`` that is its own station, on ``fake`` (``raw``: its
-    cloud entry's raw fields)."""
+    cloud entry's raw fields; ``firmware``: its listed main firmware)."""
     fake.serial = serial
     fake.static_key = static_key(serial, fake.did)
 
@@ -2965,6 +2972,7 @@ async def _standalone(
         p2p_did=SYNTHETIC.did,
         station_sn=serial,
         raw=raw or {},
+        main_sw_version=firmware,
     )
     station = Station(device, session)
     await station.async_update()
@@ -3720,18 +3728,44 @@ async def test_a_wifi_camera_behind_a_homebase_3_gets_its_handlers_1700_open_and
     assert fake.bare_stop_frames == ([(3, (3).to_bytes(4, "little"))] if bare_stop else [])
 
 
+@pytest.mark.parametrize("firmware", ["3.8.7.4", "3.8.8.0"])
 async def test_a_t8224_behind_a_homebase_3_is_refused_as_the_app_streams_it_over_webrtc(
-    station: Station, fake: FakeStation
+    station: Station, fake: FakeStation, firmware: str
 ) -> None:
+    """Grade and refusal are one decision: ``UNKNOWN`` with the refusal's own reason."""
     t8224 = dataclasses.replace(CAMERA, device_sn="T8224P2000067890", channel=3)
-    hub = Station(station.device, station.session, sub_devices=[t8224])
-    with pytest.raises(UnsupportedError, match="T8224 behind a HB3 station over WebRTC"):
-        await hub.async_open_live(t8224.device_sn)
-    assert fake.doorbell_payloads == []
-    assert fake.live_opens == []
+    hub_device = dataclasses.replace(station.device, main_sw_version=firmware)
+    hub = Station(hub_device, station.session, sub_devices=[t8224])
     evidence = hub.live_support(t8224.device_sn)
     assert evidence.support is Support.UNKNOWN
-    assert "WebRTC" in evidence.source
+    with pytest.raises(UnsupportedError, match="T8224 behind a HB3 station over WebRTC") as err:
+        await hub.async_open_live(t8224.device_sn)
+    assert str(err.value) == evidence.source
+    assert fake.doorbell_payloads == []
+    assert fake.live_opens == []
+    assert ImageSource.LIVE not in hub.image_sources(t8224.device_sn)
+
+
+def test_routing_leaves_the_reason_of_a_camera_without_pan_tilt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A routed camera whose thing description has no pan/tilt keeps the reason it has
+    none; a grade above ``UNKNOWN`` from any source (here a profile entry for a model
+    without recorded handler actions) becomes ``UNKNOWN`` with the route."""
+    serial = "T8224P2000067890"
+    hub = _routed_hub("T8030", "3.8.8.0", serial)
+    assert hub.app_uses_webrtc(serial)
+    presets = hub.ptz_support(serial, Capability.PTZ_PRESETS)
+    assert presets.support is Support.UNKNOWN
+    assert "WebRTC" not in presets.source
+    monkeypatch.setattr(
+        hub._ptz, "_handler_grade", lambda *_: Evidence(Support.VERIFIED, "profile")
+    )
+    assert hub.ptz_support(serial, Capability.PTZ_PRESETS) == Evidence(
+        Support.UNKNOWN,
+        "the eufy app sends query_preset_positions and set_ptz_cruise_preview to a T8224 "
+        "behind a HB3 station over WebRTC, which this library does not implement",
+    )
 
 
 @pytest.mark.parametrize("firmware", ["4.2.0.0", None])
@@ -3742,11 +3776,539 @@ async def test_a_t8224_behind_a_homebase_3_outside_the_apps_webrtc_window_gets_i
     hub_device = dataclasses.replace(station.device, main_sw_version=firmware)
     hub = Station(hub_device, station.session, sub_devices=[t8224])
     assert hub.live_support(t8224.device_sn).support is Support.DECLARED
+    assert ImageSource.LIVE in hub.image_sources(t8224.device_sn)
     async with await hub.async_open_live(t8224.device_sn) as stream:
         await anext(aiter(stream))
     (body,) = fake.doorbell_payloads
     assert body["data"]["mChannel"] == 3
     assert body["data"]["extValue"] == 1000
+
+
+_ROUTED_T8170 = "T8170P1000054321"
+"""A T8170 whose serial passes the eufy app's WebRTC serial condition (from 3.4.0.0)."""
+
+
+@pytest.mark.parametrize(("firmware", "routed"), [("3.3.9.9", False), ("3.4.0.0", True)])
+async def test_a_standalone_t8170s_live_grade_and_open_follow_its_route(
+    fake: FakeStation, firmware: str, routed: bool
+) -> None:
+    """Below 3.4.0.0 the app reaches it over P2P: the profile's grade and the open. From
+    3.4.0.0 over WebRTC: ``UNKNOWN`` with the refusal's own reason, nothing sent."""
+    station = await _standalone(fake, _ROUTED_T8170, firmware=firmware)
+    try:
+        assert station.app_uses_webrtc(_ROUTED_T8170) is routed
+        evidence = station.live_support(_ROUTED_T8170)
+        if routed:
+            assert evidence.support is Support.UNKNOWN
+            assert evidence.source == (
+                "the eufy app streams a T8170 on its own over WebRTC, which this library "
+                "does not implement"
+            )
+            with pytest.raises(UnsupportedError) as err:
+                await station.async_open_live(_ROUTED_T8170)
+            assert str(err.value) == evidence.source
+            assert fake.doorbell_payloads == []
+            assert ImageSource.LIVE not in station.image_sources(_ROUTED_T8170)
+        else:
+            assert evidence.support is Support.VERIFIED
+            assert ImageSource.LIVE in station.image_sources(_ROUTED_T8170)
+            async with await station.async_open_live(_ROUTED_T8170) as stream:
+                await anext(aiter(stream))
+            assert [b["commandType"] for b in fake.doorbell_payloads] == [1000]
+    finally:
+        await station.async_close()
+
+
+async def test_a_refused_live_image_holds_no_capture(fake: FakeStation) -> None:
+    """A live image the library cannot open raises before the capture starts: no busy
+    report for a capture that never ran."""
+    station = await _standalone(fake, _ROUTED_T8170, firmware="3.4.0.0")
+    events: list[Event] = []
+    station.subscribe(events.append)
+    try:
+        with pytest.raises(UnsupportedError, match="over WebRTC"):
+            await station.async_camera_image(_ROUTED_T8170, ImageSource.LIVE)
+        assert not [e for e in events if isinstance(e, CameraBusyChanged)]
+        assert fake.doorbell_payloads == []
+    finally:
+        await station.async_close()
+
+
+def _routed_hub(station_code: str, firmware: str, child: str, channel: int = 3) -> Station:
+    """An unconnected ``station_code`` station listed with ``firmware``, ``child`` on
+    ``channel``."""
+    hub = _unconnected_station(host=None, local_ip=None, local_port=0)
+    hub_sn = f"{station_code}P2000012345"
+    device = dataclasses.replace(
+        hub.device, device_sn=hub_sn, station_sn=hub_sn, main_sw_version=firmware
+    )
+    camera = dataclasses.replace(
+        CAMERA, device_sn=child, station_sn=hub_sn, channel=channel, main_sw_version="9.0.0.0"
+    )
+    return Station(device, hub.session, sub_devices=[camera])
+
+
+@pytest.mark.parametrize(
+    ("firmware", "routed"), [("3.8.0.0", False), ("3.8.5.1", True), ("3.8.8.0", True)]
+)
+def test_pan_tilt_of_a_camera_the_app_reaches_over_webrtc_is_unknown(
+    firmware: str, routed: bool
+) -> None:
+    """A T8L60 behind a HomeBase 3 is routed by the station's sub-device list from
+    3.8.5.1 on: every pan/tilt capability is then ``UNKNOWN`` with the route as the reason,
+    and the methods refuse before sending. A capability its thing description lacks keeps
+    that reason."""
+    serial = "T8L60P2000067890"
+    hub = _routed_hub("T8030", firmware, serial)
+    assert hub.app_uses_webrtc(serial) is routed
+    control = hub.ptz_support(serial, Capability.PTZ_CONTROL)
+    presets = hub.ptz_support(serial, Capability.PTZ_PRESETS)
+    zoom = hub.ptz_support(serial, Capability.PTZ_ZOOM)
+    assert zoom == Evidence(
+        Support.UNKNOWN, "the T8L60 thing description declares no set_picture_zoom"
+    )
+    if not routed:
+        assert control.support is Support.DECLARED
+        assert presets.support is Support.DECLARED
+        return
+    assert control == Evidence(
+        Support.UNKNOWN,
+        "the eufy app sends ptz_action_control to a T8L60 behind a HB3 station over WebRTC, "
+        "which this library does not implement",
+    )
+    assert presets.support is Support.UNKNOWN
+    assert "over WebRTC" in presets.source
+    assert hub.ptz_action_support(serial, PtzAction.SLOT_PICTURE).support is Support.UNKNOWN
+    with pytest.raises(UnsupportedError, match="over WebRTC"):
+        hub._ptz.stored_slot(serial, 1)
+
+
+@pytest.mark.parametrize(
+    ("serial", "firmware"),
+    [(_ROUTED_T8170, "3.4.0.0"), ("T8180P2000054321", None), ("T8172P2000054321", None)],
+)
+def test_pan_tilt_of_a_standalone_camera_the_app_reaches_over_webrtc_is_unknown(
+    serial: str, firmware: str | None
+) -> None:
+    """A standalone T8170 from 3.4.0.0 and a standalone T8180 or T8172 (routed whatever
+    their firmware): even a capability verified on hardware over P2P is ``UNKNOWN``, and
+    the route is the reason also where the handler's recipe differs from the library's
+    (T8172 on its own)."""
+    device = CloudDevice(
+        device_sn=serial,
+        station_sn=serial,
+        p2p_did=SYNTHETIC.did,
+        device_type=48,
+        channel=0,
+        name="standalone",
+        main_sw_version=firmware,
+    )
+    station = Station(device, _unconnected_station(host=None, local_ip=None, local_port=0).session)
+    assert station.app_uses_webrtc(serial)
+    for capability in (Capability.PTZ_CONTROL, Capability.PTZ_PRESETS, Capability.PTZ_ZOOM):
+        evidence = station.ptz_support(serial, capability)
+        assert evidence.support is Support.UNKNOWN
+        assert "on its own over WebRTC" in evidence.source
+    assert station.preset_image_support(serial) == station.ptz_support(
+        serial, Capability.PTZ_PRESETS
+    )
+
+
+async def test_a_preset_image_is_refused_before_the_turn_where_the_open_would_be(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A T8172 behind a HomeBase mini has presets the library sends, but a live open it
+    does not: the preset image and a live open at a preset raise before the camera
+    turns, and the capture's grade says why."""
+    serial = "T8172P2000067890"
+    hub = _routed_hub("T8025", "4.0.8.0", serial)
+    sent: list[Recipe] = []
+
+    async def recipe(r: Recipe, **_: Any) -> Any:
+        sent.append(r)
+        raise AssertionError("nothing may be sent")
+
+    monkeypatch.setattr(hub.session, "async_run_recipe", recipe)
+    presets = hub.ptz_support(serial, Capability.PTZ_PRESETS)
+    live = hub.live_support(serial)
+    assert presets.support is Support.DECLARED
+    assert live.support is Support.UNKNOWN
+    assert hub.preset_image_support(serial) == live
+    with pytest.raises(UnsupportedError) as err:
+        await hub.async_preset_image(serial, 1, settle=0)
+    assert str(err.value) == live.source
+    with pytest.raises(UnsupportedError) as err:
+        await hub.async_open_live(serial, preset=1)
+    assert str(err.value) == live.source
+    assert sent == []
+    assert not hub.is_capturing(serial)
+
+
+def test_the_preset_image_grade_is_the_weaker_of_presets_and_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hub = _hub_with(CAMERA)
+    grades = {
+        "presets": Evidence(Support.DECLARED, "presets"),
+        "live": Evidence(Support.VERIFIED, "live"),
+    }
+    monkeypatch.setattr(hub, "ptz_support", lambda _sn, _cap: grades["presets"])
+    monkeypatch.setattr(hub, "live_support", lambda _sn: grades["live"])
+    assert hub.preset_image_support(CAMERA.device_sn).source == "presets"
+    grades["presets"], grades["live"] = grades["live"], grades["presets"]
+    assert hub.preset_image_support(CAMERA.device_sn).source == "presets"
+    grades["presets"] = Evidence(Support.UNKNOWN, "presets")
+    grades["live"] = Evidence(Support.UNKNOWN, "live")
+    assert hub.preset_image_support(CAMERA.device_sn).source == "presets"
+
+
+_TWIN_CONTEXTS: tuple[tuple[str | None, str | None, str | None], ...] = (
+    (None, None, None),
+    (None, None, "3.3.9.9"),
+    (None, None, "3.4.0.0"),
+    (None, None, "9.0.0.0"),
+    *((prefix, None, "9.0.0.0") for prefix in PARENT_CONNECT_TYPES),
+    *((prefix, "9.0.0.0", "9.0.0.0") for prefix in PARENT_CONNECT_TYPES),
+    ("T8030", "3.7.0.0", "9.0.0.0"),
+    ("T8030", "3.8.0.0", "9.0.0.0"),
+    ("T8030", "3.8.8.0", "9.0.0.0"),
+    ("T8025", "4.0.8.0", "9.0.0.0"),
+)
+"""(station prefix or None for standalone, station firmware, device firmware)."""
+
+
+def _twin_station(
+    code: str, context: tuple[str | None, str | None, str | None], *, seventh: str = "1"
+) -> Station:
+    """``code``'s device in ``context``; ``seventh`` is its serial's 7th character."""
+    prefix, station_fw, device_fw = context
+    serial = (code + "P" + seventh + "0" * 16)[:16]
+    session = _unconnected_station(host=None, local_ip=None, local_port=0).session
+    if prefix is None:
+        device = CloudDevice(
+            device_sn=serial,
+            station_sn=serial,
+            p2p_did=SYNTHETIC.did,
+            device_type=0,
+            channel=0,
+            name=code,
+            main_sw_version=device_fw,
+            raw={"device_new_pn": code},
+        )
+        return Station(device, session)
+    hub_sn = f"{prefix}P2000012345"
+    hub = CloudDevice(
+        device_sn=hub_sn,
+        station_sn=hub_sn,
+        p2p_did=SYNTHETIC.did,
+        device_type=0,
+        name="hub",
+        main_sw_version=station_fw,
+        raw={"device_new_pn": prefix},
+    )
+    child = CloudDevice(
+        device_sn=serial,
+        station_sn=hub_sn,
+        p2p_did=SYNTHETIC.did,
+        device_type=0,
+        channel=3,
+        name=code,
+        main_sw_version=device_fw,
+        raw={"device_new_pn": code},
+    )
+    return Station(hub, session, sub_devices=[child])
+
+
+async def test_every_live_grade_matches_its_open_and_every_preset_grade_its_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """For every bundled product in every context: ``live_support`` is ``UNKNOWN`` with
+    reason R exactly where the open raises ``UnsupportedError(R)`` before sending, and
+    ``image_sources`` lists ``LIVE`` exactly where it is sent; ``preset_image_support``
+    is ``UNKNOWN`` exactly where ``async_preset_image`` raises before the turn. The one
+    exception both ways: a model without a recorded open, graded ``UNKNOWN`` and still
+    tried."""
+    codes = sorted(set(MODELS) | set(LIVE_OPEN) | set(PTZ) | set(ROUTE_PROPERTIES))
+    checked = refused = 0
+    for code in codes:
+        for context in _TWIN_CONTEXTS:
+            if context[0] == code:
+                continue
+            station = _twin_station(code, context)
+            serial = station.devices[-1].device_sn
+            opened: list[int] = []
+            turned: list[str] = []
+
+            async def open_live(channel: int, **_: Any) -> Any:
+                opened.append(channel)  # noqa: B023
+                raise CommunicationError("stub")
+
+            async def recipe(r: Recipe, **_: Any) -> Any:
+                turned.append(r.identifier)  # noqa: B023
+                raise CommunicationError("stub")
+
+            async def no_read(_channel: int) -> None:
+                return None
+
+            monkeypatch.setattr(station.session, "async_open_live", open_live)
+            monkeypatch.setattr(station.session, "async_run_recipe", recipe)
+            monkeypatch.setattr(station, "_read_lens_params", no_read)
+            live = station.live_support(serial)
+            # A model without a recorded open the app does not route over WebRTC: graded
+            # UNKNOWN and still tried.
+            try_anyway = (
+                live.support is Support.UNKNOWN
+                and not station.app_uses_webrtc(serial)
+                and not has_live_open(code)
+            )
+            tried = live.support is not Support.UNKNOWN or try_anyway
+            where = f"{code} {context}"
+            refusal = await _refusal(station.async_open_live(serial))
+            if refusal is not None:
+                refused += 1
+            assert (refusal is None) is tried, where
+            assert refusal is None or refusal == live.source, where
+            assert (opened != []) is tried, where
+            assert (ImageSource.LIVE in station.image_sources(serial)) is tried, where
+            grade = station.preset_image_support(serial)
+            refusal = await _refusal(station.async_preset_image(serial, 1, settle=0))
+            if refusal is not None:
+                assert turned == [], where
+                assert grade.support is Support.UNKNOWN, where
+                assert refusal.endswith(grade.source), where
+            else:
+                assert turned, where
+                assert grade.support is not Support.UNKNOWN or (try_anyway and grade == live), where
+            checked += 1
+    assert checked > 1000
+    assert refused > 100
+
+
+async def _refusal(call: Coroutine[Any, Any, object]) -> str | None:
+    """``call``'s ``UnsupportedError`` message; None when it went on to send (the test's
+    stubs then raise ``CommunicationError``)."""
+    try:
+        await call
+    except UnsupportedError as err:
+        return str(err)
+    except CommunicationError:
+        return None
+    raise AssertionError("the stub raises on every send")
+
+
+_PTZ_CALLS: tuple[
+    tuple[
+        Callable[[Station, str], Coroutine[Any, Any, object]],
+        Callable[[Station, str], Evidence],
+    ],
+    ...,
+] = (
+    (
+        lambda st, sn: st.async_pan_tilt(sn, PanTilt.LEFT, settle=0),
+        lambda st, sn: st.ptz_support(sn, Capability.PTZ_CONTROL),
+    ),
+    (
+        lambda st, sn: st.async_goto_preset(sn, 1, settle=0),
+        lambda st, sn: st.ptz_support(sn, Capability.PTZ_PRESETS),
+    ),
+    (
+        lambda st, sn: st.async_refresh_presets(sn),
+        lambda st, sn: st.ptz_support(sn, Capability.PTZ_PRESETS),
+    ),
+    (
+        lambda st, sn: st.async_set_zoom(sn, 2.0),
+        lambda st, sn: st.ptz_support(sn, Capability.PTZ_ZOOM),
+    ),
+    (
+        lambda st, sn: st.async_store_preset(sn, 1),
+        lambda st, sn: st.ptz_action_support(sn, PtzAction.STORE),
+    ),
+    (
+        lambda st, sn: st.async_save_preset(sn, preset=1),
+        lambda st, sn: st.ptz_action_support(sn, PtzAction.STORE),
+    ),
+    (
+        lambda st, sn: st.async_delete_preset(sn, 1),
+        lambda st, sn: st.ptz_action_support(sn, PtzAction.DELETE),
+    ),
+    (
+        lambda st, sn: st.async_set_default_preset(sn, 1),
+        lambda st, sn: st.ptz_action_support(sn, PtzAction.SET_DEFAULT),
+    ),
+    (
+        lambda st, sn: st.async_preset_picture(sn, 1),
+        lambda st, sn: st.ptz_action_support(sn, PtzAction.SLOT_PICTURE),
+    ),
+    (
+        lambda st, sn: st.async_open_live(sn, preset=1),
+        lambda st, sn: st.preset_image_support(sn),
+    ),
+)
+"""Each pan/tilt, preset and zoom call with the grade that gates it."""
+
+
+async def test_every_pan_tilt_grade_matches_its_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """For every product with recorded pan/tilt actions, in every context and on both
+    sides of the T8170's serial condition: each call raises ``UnsupportedError`` ending
+    in its grade's reason, with nothing sent, exactly where that grade is ``UNKNOWN``."""
+    checked = refused = 0
+    for code in sorted(PTZ):
+        for context in _TWIN_CONTEXTS:
+            if context[0] == code:
+                continue
+            for seventh in ("1", "2"):
+                station = _twin_station(code, context, seventh=seventh)
+                serial = station.devices[-1].device_sn
+                sent: list[str] = []
+
+                async def recipe(r: Recipe, **_: Any) -> Any:
+                    sent.append(r.identifier)  # noqa: B023
+                    raise CommunicationError("stub")
+
+                async def open_live(channel: int, **_: Any) -> Any:
+                    sent.append("live open")  # noqa: B023
+                    raise CommunicationError("stub")
+
+                monkeypatch.setattr(station.session, "async_run_recipe", recipe)
+                monkeypatch.setattr(station.session, "async_open_live", open_live)
+                for call, grade_of in _PTZ_CALLS:
+                    grade = grade_of(station, serial)
+                    sent.clear()
+                    refusal = await _refusal(call(station, serial))
+                    where = f"{code} {context} {serial} {grade}"
+                    assert (refusal is not None) is (grade.support is Support.UNKNOWN), where
+                    assert (sent == []) is (refusal is not None), where
+                    assert refusal is None or refusal.endswith(grade.source), where
+                    refused += refusal is not None
+                    checked += 1
+    assert checked > 5000
+    assert refused > 1000
+
+
+def test_a_routed_camera_declaring_one_preset_action_keeps_the_missing_ones_reason() -> None:
+    """A T84A1 declares only one of the two preset actions: behind a station that routes
+    it over WebRTC, the reason stays the one its thing description lacks."""
+    serial = "T84A1P2000067890"
+    hub = _routed_hub("T8040", "9.0.0.0", serial)
+    assert hub.app_uses_webrtc(serial)
+    assert hub.ptz_support(serial, Capability.PTZ_PRESETS) == Evidence(
+        Support.UNKNOWN, "the T84A1 thing description declares no set_ptz_cruise_preview"
+    )
+
+
+@pytest.mark.parametrize(
+    "station",
+    [
+        pytest.param(lambda: _routed_hub("T8025", "4.0.8.0", "T8172P2000067890"), id="hb-mini"),
+        pytest.param(lambda: _standalone_at(_ROUTED_T8170, "3.3.9.9"), id="standalone-t8170"),
+    ],
+)
+def test_the_live_grade_of_a_device_not_paired_here_says_so_first(
+    station: Callable[[], Station],
+) -> None:
+    """A serial not paired to the station is ``UNKNOWN`` for that reason, as every other
+    grade is, before its model's refusal (a T8172 behind a HomeBase mini) or its verified
+    profile (a T8170)."""
+    hub = station()
+    other = hub.devices[-1].device_sn[:10] + "999999"
+    assert hub.live_support(other) == Evidence(
+        Support.UNKNOWN, "the device is not paired to this station"
+    )
+    assert hub.preset_image_support(other) == hub.live_support(other)
+    with pytest.raises(UnsupportedError, match="not paired"):
+        hub.image_sources(other)
+
+
+def _standalone_at(serial: str, firmware: str | None) -> Station:
+    """An unconnected standalone camera ``serial`` listed with ``firmware``."""
+    device = CloudDevice(
+        device_sn=serial,
+        station_sn=serial,
+        p2p_did=SYNTHETIC.did,
+        device_type=48,
+        channel=0,
+        name="standalone",
+        main_sw_version=firmware,
+    )
+    return Station(device, _unconnected_station(host=None, local_ip=None, local_port=0).session)
+
+
+async def test_a_device_list_refresh_moves_a_standalone_t8170_onto_its_route(
+    fake: FakeStation,
+) -> None:
+    """The station's own list entry replaces its record: a T8170 updated to 3.4.0.0 is
+    graded and refused as routed from the refresh on, with nothing sent."""
+    station = await _standalone(fake, _ROUTED_T8170, firmware="3.3.9.9")
+    try:
+        assert station.live_support(_ROUTED_T8170).support is Support.VERIFIED
+        assert station.ptz_support(_ROUTED_T8170, Capability.PTZ_CONTROL).support is (
+            Support.VERIFIED
+        )
+        updated = dataclasses.replace(station.device, main_sw_version="3.4.0.0")
+        assert station.apply_cloud_device(updated) == 0  # the record is no parameter
+        assert station.device is updated
+        evidence = station.live_support(_ROUTED_T8170)
+        assert evidence == Evidence(
+            Support.UNKNOWN,
+            "the eufy app streams a T8170 on its own over WebRTC, which this library does "
+            "not implement",
+        )
+        with pytest.raises(UnsupportedError) as err:
+            await station.async_open_live(_ROUTED_T8170)
+        assert str(err.value) == evidence.source
+        assert ImageSource.LIVE not in station.image_sources(_ROUTED_T8170)
+        control = station.ptz_support(_ROUTED_T8170, Capability.PTZ_CONTROL)
+        assert control.support is Support.UNKNOWN
+        with pytest.raises(UnsupportedError) as err:
+            await station.async_pan_tilt(_ROUTED_T8170, PanTilt.LEFT, settle=0)
+        assert str(err.value).endswith(control.source)
+        assert fake.doorbell_payloads == []
+        assert fake.pan_tilts == []
+    finally:
+        await station.async_close()
+
+
+async def test_a_refreshed_record_emits_the_state_it_changes(station: Station) -> None:
+    """A record that changes the state (a firmware the dump does not name) emits it; the
+    same record again emits nothing."""
+    state = await station.async_update()
+    assert state.sec_firmware is None
+    events: list[Event] = []
+    station.subscribe(events.append)
+    updated = dataclasses.replace(STATION, sec_sw_version="1.2.3.4")
+    assert station.apply_cloud_device(updated) == 0
+    assert station.apply_cloud_device(updated) == 0
+    changes = [e for e in events if isinstance(e, StationStateChanged)]
+    assert [e.state.sec_firmware for e in changes] == ["1.2.3.4"]
+
+
+def test_a_refreshed_station_firmware_drops_the_settings_it_gates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A paired device's per-mode settings follow the station's firmware gate: a record
+    with another firmware drops the memo, the same firmware keeps it."""
+    from eufy_home_security.devices import station_config_support  # noqa: PLC0415
+
+    gate = "3.9.0.0"
+    monkeypatch.setattr(
+        station_config_support,
+        "min_firmware",
+        lambda _code, feature: gate if feature is StationFeature.MODE_TABLES else None,
+    )
+    hub = _routed_hub("T8030", "3.8.0.0", SYNTHETIC.camera_sn, channel=0)
+    before = hub.settings_for(SYNTHETIC.camera_sn)
+    renamed = dataclasses.replace(hub.device, name="renamed")
+    hub.apply_cloud_device(renamed)
+    assert hub.settings_for(SYNTHETIC.camera_sn) is before
+    hub.apply_cloud_device(dataclasses.replace(renamed, main_sw_version=gate))
+    after = hub.settings_for(SYNTHETIC.camera_sn)
+    assert len(after) > len(before)
+
+
+def test_a_refreshed_standalone_record_moves_the_channel_reads_wait_for() -> None:
+    station = _standalone_at(_ROUTED_T8170, "3.3.9.9")
+    station.apply_cloud_device(dataclasses.replace(station.device, channel=2))
+    assert station.session.expect_channels == {2}
 
 
 @pytest.mark.parametrize(
