@@ -2562,8 +2562,8 @@ async def test_live_stream_starts_at_a_keyframe_and_stops_on_close(
         await session.async_close()
 
 
-# A playback ends on the station's end frame, GCM-tagged or under the static key;
-# without one, on the idle fallback.
+# A playback ends on the station's end frame, GCM-tagged or under the static key; a
+# download with no end-of-download frame, on the idle fallback.
 @pytest.mark.parametrize(
     ("download", "command", "end_cipher"),
     [(False, 1025, FrameCipher.GCM), (False, 1025, FrameCipher.ECB), (True, 1024, None)],
@@ -2579,7 +2579,7 @@ async def test_recording_plays_to_its_end(
     caplog.set_level(logging.DEBUG, logger="eufy_home_security.p2p.session")
     end_frame = end_cipher is not None
     if end_cipher is None:
-        station.playback_end_delay = None
+        station.playback_end_delay = station.download_end_delay = None
     else:
         station.playback_end_cipher = end_cipher
     session = make_session(station, Provider(station))
@@ -2592,6 +2592,7 @@ async def test_recording_plays_to_its_end(
         assert (time.monotonic() - started < 1.0) is end_frame
         assert len(_video(frames)) == station.recording_frames
         assert stream.closed
+        assert (stream.ended, stream.end_frame) == (True, end_frame)
         opened = next(o for o in station.received if o["cmd"] == command)
         assert opened["payload"]["filepath"] == "/zx/clip.zxvideo"
         assert opened["mChannel"] == 1
@@ -4099,8 +4100,10 @@ async def test_live_stream_aborts_on_wrong_camera_frames(
 ) -> None:
     start_media = FakeStation._start_media
 
-    def stream_channel_0(self: FakeStation, key_hex: str, *, live: bool, camera: int) -> None:
-        start_media(self, key_hex, live=live, camera=0)
+    def stream_channel_0(
+        self: FakeStation, key_hex: str, *, live: bool, camera: int, download: bool = False
+    ) -> None:
+        start_media(self, key_hex, live=live, camera=0, download=download)
 
     monkeypatch.setattr(FakeStation, "_start_media", stream_channel_0)
 
@@ -4182,8 +4185,10 @@ async def test_recording_open_ignores_wrong_camera_frames(
 ) -> None:
     start_media = FakeStation._start_media
 
-    def stream_channel_0(self: FakeStation, key_hex: str, *, live: bool, camera: int) -> None:
-        start_media(self, key_hex, live=live, camera=0)
+    def stream_channel_0(
+        self: FakeStation, key_hex: str, *, live: bool, camera: int, download: bool = False
+    ) -> None:
+        start_media(self, key_hex, live=live, camera=0, download=download)
 
     monkeypatch.setattr(FakeStation, "_start_media", stream_channel_0)
     session = make_session(station, Provider(station))
