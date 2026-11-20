@@ -1,6 +1,7 @@
 """Decoding the station's alarm frames: tone, siren and light.
 
-Every session on a station receives these, whoever triggered or stopped the alarm.
+Every session on a station receives these on DRW channel 2, whoever triggered or stopped
+the alarm; a frame of these types on channel 0 is a command's result, not state.
 The frame type is the parameter id (the app's ``CommandType``), subheader byte 2 is
 the channel (255 = the station), and the decrypted body is little-endian u32 values:
 
@@ -30,8 +31,14 @@ As a state (:attr:`AlarmFrame.alarm_state`), the app takes an off type only with
 time left and an on type only with time left; it ignores the other frames.
 
 Arming and disarming also send ``[0, 0]`` tone and siren frames on each channel. The
-station sends them under GCM; the session refuses ECB copies once a session key exists
-(they would be forgeable state). This module is pure: the session decrypts.
+station sends these frames under GCM, and some under the static key (the light frame
+after an ECB 1400 write, 16 bytes); the session takes them under any encryption, as the
+eufy app does, and only GCM or an RSA session's own key authenticates them.
+
+The light frame's value is filed into the camera's param 1400, as the eufy app files it,
+until the next dump (or write, or light frame) replaces it. Right after an ECB 1400
+write, on or off, it has read 0 in every observed run; what that 0 means is not
+established. This module is pure: the session decrypts.
 """
 
 from __future__ import annotations

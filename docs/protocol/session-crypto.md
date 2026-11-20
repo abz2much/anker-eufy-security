@@ -349,6 +349,10 @@ command id maps to:
 | default | none. The app rejects the command with −103. | — | everything else, including 1157–1175, 1276, 1277, 1296, 1298 |
 
 - `account_id` is the **owner's** user id, ASCII, NUL-terminated inside the 128-byte field.
+- `value` comes from one field of the handler's body, fixed per command (`open` for
+  1400, `brightness` for 1401, `volume` for 1230; the table is `ECB_VALUE_FIELDS` in
+  `p2p/messages.py`); the body's other fields are not sent
+  ([commands.md](commands.md#settings), library write path).
 - A command on the default handler is not a scalar: send it as a GCM payload object
   ([commands.md](commands.md)) or not at all.
 - Id 1224 (arming) is in the station scalar set: the eufy app arms a model whose
@@ -364,7 +368,12 @@ time zone (1215) takes only this form; the handler's `DeviceMsgBean` JSON for 12
 refused (−1). The app routes 1132, 1216 and 1217 the same way; the library sends
 only 1215 this way (`p2p/messages.py` `STRING_CMDS`).
 
-**Reply.** A frame of the **same type**. Its payload starts with an int32le result code.
+**Reply.** A frame of the **same type** on DRW channel 0 (the request channel). Its
+payload starts with an int32le result code. A frame of the same type on DRW channel 2 is
+the station's state, not the reply: a HomeBase 3 sends the light frame `0x0578` there
+before the result of an ECB 1400 write ([commands.md](commands.md#settings)). The eufy
+app reads results on channel 0 only, and the library does the same; a channel-0 frame of
+an alarm frame's type is not taken as state.
 
 | code | name | usual cause |
 |---|---|---|

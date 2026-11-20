@@ -63,6 +63,7 @@ from eufy_home_security.exceptions import (
 )
 from eufy_home_security.models import STATION_CHANNEL, GuardMode, ValueSource
 from eufy_home_security.p2p import transport as transport_module
+from eufy_home_security.p2p.alarm import AlarmFrame
 from eufy_home_security.p2p.crypto import (
     CONN_INIT_ECC_VERSION,
     FRAME_PLAIN,
@@ -4964,7 +4965,9 @@ async def test_an_rsa_session_takes_state_under_any_encryption(
             station.send_alarm_frame(FrameType.LIGHT_NOTIFY, 1, channel=1, cipher=cipher)
         station.send_frame(FrameType.PARAM_NOTIFY, b"\x01" * 33, cipher=0, subheader=undecodable)
         light = bytes([FrameCipher.ECB, 0, 3, _RSA_TYPES[encryption], 0, 0])
-        station.send_frame(FrameType.LIGHT_NOTIFY, b"\x01" * 3, cipher=0, subheader=light)
+        station.send_frame(
+            FrameType.LIGHT_NOTIFY, b"\x01" * 3, cipher=0, channel=2, subheader=light
+        )
         await wait_until(lambda: session.stats().dropped_undecodable == 2)
         stats = session.stats()
     finally:
@@ -5463,6 +5466,21 @@ def test_a_scalar_result_needs_its_type_and_four_bytes(station: FakeStation) -> 
     assert codes == [None, -103, None]
 
 
+def test_a_scalar_result_is_read_on_the_request_channel_only(station: FakeStation) -> None:
+    """The light frame 1400 on the notify channel (2), under the static key, is no result."""
+    session = make_session(station, Provider(station))
+    state = Frame(
+        FrameType.LIGHT_NOTIFY,
+        bytes([FrameCipher.ECB, 0, 1, FRAME_STATIC_ECB, 0, 0]),
+        ecb_encrypt(station.static_key, struct.pack("<I", 0)),
+    )
+    result = Frame(FrameType.LIGHT_NOTIFY, b"", struct.pack("<i", 0) + bytes(128))
+    assert len(state.payload) == 16
+    assert _scalar_result(Inbound(2, state, session), 1400) is None
+    assert _scalar_result(Inbound(2, result, session), 1400) is None
+    assert _scalar_result(Inbound(0, result, session), 1400) == 0
+
+
 async def test_a_scalar_arm_refused_raises_its_code(station: FakeStation) -> None:
     station.refused_scalars = {1224: -104}
     session = make_session(station, Provider(station))
@@ -5485,6 +5503,93 @@ async def test_a_scalar_setting_refused_as_invalid_is_unsupported(station: FakeS
     finally:
         await session.async_close()
     assert (err.value.command, err.value.code) == (1214, -103)
+
+
+@pytest.mark.parametrize("shape", ["gcm", "gcm-live", "rsa"])
+async def test_an_ecb_light_write_takes_its_result_not_the_light_frame_before_it(
+    station: FakeStation, shape: str
+) -> None:
+    """A HomeBase 3 sends the light frame (1400, notify channel, static key) before the
+    result of an ECB 1400 write: the write succeeds on result 0 and still raises a real
+    non-zero code. ``gcm-live``: the result in the live shape (132 bytes, in clear)."""
+    station.scalar_state_frames = True
+    station.scalar_result_live_shape = shape == "gcm-live"
+    rsa = shape == "rsa"
+    session = make_rsa_session(station) if rsa else make_session(station, Provider(station))
+    frames: list[AlarmFrame] = []
+    session.add_alarm_listener(frames.append)
+    try:
+        await session.async_send_ecb_scalar(1400, 1, channel=1, timeout=3.0)
+        station.refused_scalars = {1400: -1}
+        with pytest.raises(CommandRejectedError) as err:
+            await session.async_send_ecb_scalar(1400, 0, channel=1, timeout=3.0)
+        stats = session.stats()
+    finally:
+        await session.async_close()
+    assert [(f.param_id, f.channel, f.values) for f in frames] == [(1400, 1, (0,))] * 2
+    assert station.ecb_received == [(1400, 1, 1), (1400, 1, 0)]
+    assert (type(err.value), err.value.command, err.value.code) == (CommandRejectedError, 1400, -1)
+    assert stats.dropped_undecodable == 0
+
+
+@pytest.mark.parametrize(
+    ("ftype", "values"),
+    [
+        (FrameType.ALARM_TONE_NOTIFY, (3, 30)),
+        (FrameType.SIREN_NOTIFY, (25, 30)),
+        (FrameType.ALARM_DELAY_NOTIFY, (6, 30)),
+        (FrameType.LIGHT_NOTIFY, (1,)),
+    ],
+)
+async def test_an_alarm_typed_frame_on_the_request_channel_is_not_state(
+    station: FakeStation, ftype: int, values: tuple[int, ...]
+) -> None:
+    """A tone, siren, delay or light frame on DRW channel 0 is a command's result: no alarm
+    listener call, no parameter, no alarm or delay event. The same frame on channel 2 is."""
+    events: list[object] = []
+    session = make_session(station, Provider(station))
+    session.subscribe(events.append)
+    frames: list[AlarmFrame] = []
+    session.add_alarm_listener(frames.append)
+    try:
+        await session.async_connect()
+        station.send_alarm_frame(ftype, *values, channel=3, cipher=FrameCipher.ECB, drw_channel=0)
+        station.send_alarm_frame(ftype, *values, channel=4, cipher=FrameCipher.ECB)
+        await wait_until(lambda: len(frames) >= 1)
+        await asyncio.sleep(0.05)
+    finally:
+        await session.async_close()
+    assert [(f.param_id, f.channel, f.values) for f in frames] == [(ftype, 4, values)]
+    assert (3, ftype) not in session.params
+    assert not [e for e in events if getattr(e, "channel", None) == 3]
+
+
+async def test_a_1224_frame_on_the_notify_channel_does_not_settle_a_scalar_arm(
+    station: FakeStation, short_settle: None
+) -> None:
+    """A frame of type 1224 on DRW channel 2 ahead of the arm's channel-0 result is not the
+    arm's result, even when it reads as a refusal."""
+    station.refused_commands = {1224: -103}
+    station.mode_reports = False
+    station.mode_in_dump = False
+
+    def refusal_on_channel_2(command: int, _channel: int) -> None:
+        station.send_frame(
+            command,
+            struct.pack("<i", -104) + bytes(128),
+            cipher=FrameCipher.ECB,
+            channel=2,
+            subheader=bytes([FrameCipher.ECB, 0, 0xFF, FRAME_PLAIN, 0, 0]),
+        )
+
+    station.scalar_prelude = refusal_on_channel_2
+    session = make_session(station, Provider(station))
+    try:
+        armed = await session.async_set_guard_mode(GuardMode.HOME, timeout=3.0, scalar=True)
+    finally:
+        await session.async_close()
+    assert armed is GuardMode.HOME
+    assert station.ecb_received == [(1224, 255, 1)]
 
 
 @pytest.mark.parametrize(
