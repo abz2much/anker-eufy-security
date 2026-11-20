@@ -286,20 +286,32 @@ def _variants(
         _count(counts, "variant_of")
 
 
-def switches(pn: str, titles: Mapping[str, Any] | None) -> dict[str, dict[bool, str]]:
-    """``{identifier: {state: text}}``: the string properties the app shows as an on/off
-    switch for model ``pn``, with the text it writes for on (True) and off (False).
+def switches(pn: str, titles: Mapping[str, Any] | None) -> dict[str, dict[bool, str | bool]]:
+    """``{identifier: {state: value}}``: the string properties the app shows as an on/off
+    switch for model ``pn``, with the value it writes for on (True) and off (False).
 
-    From the title file's ``switches`` (``on``/``off``, a per-model pair under
-    ``models``); raises GeneratorError when the two texts are equal or not strings.
+    From the title file's ``switches`` (texts ``on``/``off``, a per-model pair under
+    ``models``) and ``bool_switches`` (the identifiers whose switch writes the JSON bool
+    itself, ``{identifier: {"source": text}}``); raises GeneratorError when the two texts
+    are equal or not strings, when a bool switch entry has no source text, or when both
+    lists name one identifier.
     """
-    out: dict[str, dict[bool, str]] = {}
+    out: dict[str, dict[bool, str | bool]] = {}
     for ident, rule in ((titles or {}).get("switches") or {}).items():
         texts = {**rule, **(rule.get("models") or {}).get(pn, {})}
         on, off = texts.get("on"), texts.get("off")
         if not isinstance(on, str) or not isinstance(off, str) or on == off:
             raise GeneratorError(f"{pn}: switch {ident} needs two distinct on/off texts")
         out[ident] = {True: on, False: off}
+    bool_rules = (titles or {}).get("bool_switches") or {}
+    if not isinstance(bool_rules, Mapping):
+        raise GeneratorError(f"{pn}: bool switches need a mapping of identifier to source")
+    for ident, rule in bool_rules.items():
+        if not isinstance(rule, Mapping) or not isinstance(rule.get("source"), str):
+            raise GeneratorError(f"{pn}: bool switch {ident} needs a source text")
+        if ident in out:
+            raise GeneratorError(f"{pn}: switch {ident} is listed with texts and as a bool")
+        out[ident] = {True: True, False: False}
     return out
 
 
