@@ -92,6 +92,7 @@ def _args(tmp_path: Path, jobs: int) -> argparse.Namespace:
         titles=data / "titles.json",
         shown=data / "shown.json",
         released=data / "released.json",
+        answers=None,
     )
 
 
@@ -129,6 +130,141 @@ def test_one_job_builds_in_process_and_reports_each_failure(
     assert gen_models.DRIVERS._closed  # no worker outlives the run
 
 
+def _seed_answers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """A store holding, for each of PNS, one job of an earlier run that the next run does not
+    ask; the generator's driver answers ``{}`` per request. Returns the handler and store."""
+    handler = tmp_path / "Handle.mix.js"
+    handler.write_text("// handler", encoding="utf-8")
+    store = tmp_path / "answers"
+    fresh = gen_models.answers.AnswerStore(
+        store, driver=gen_models.node.DRIVER, runtime=lambda: "v0"
+    )
+    monkeypatch.setattr(gen_models, "ANSWERS", fresh)
+    monkeypatch.setattr(gen_models.DRIVERS, "run", lambda job: [{} for _ in job["requests"]])
+    for pn in PNS:
+        gen_models.ANSWERS.open(pn)
+        gen_models.run_driver(pn, handler, [{"earlier": pn}])
+        assert gen_models.ANSWERS.close(ok=True) is None
+    return handler, store
+
+
+def _kept(store: Path) -> dict[str, int]:
+    return {pn: len(gen_models.answers.read_records(store / f"{pn}.answers")[0]) for pn in PNS}
+
+
+@pytest.mark.timeout(60)
+def test_a_built_model_keeps_only_its_run_s_answers_and_a_failed_one_its_earlier_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handler, store = _seed_answers(tmp_path, monkeypatch)
+    with (store / "T9ZZ5.answers").open("ab") as damaged:
+        damaged.write(b"not a record\n")
+
+    def asking_generate(pn: str, *args: Any, **kwargs: Any) -> Any:
+        gen_models.run_driver(pn, handler, [{"now": pn}])
+        return _fake_generate(pn, *args, **kwargs)
+
+    monkeypatch.setattr(gen_models, "generate", asking_generate)
+    args = _args(tmp_path, 1)
+    args.answers = store
+    gen_models.DRIVERS.close()  # as an earlier run leaves it
+    assert gen_models._generate_all(args, tmp_path, tmp_path / "out", quiet=True) == 1
+    err = capsys.readouterr().err
+    assert f"answers: 0 jobs replayed, 5 asked of Node, 1 damaged in the store ({store})" in err
+    # T9ZZ2 fails with a GeneratorError, T9ZZ4 with another exception
+    assert _kept(store) == {"T9ZZ1": 1, "T9ZZ2": 2, "T9ZZ3": 1, "T9ZZ4": 2, "T9ZZ5": 1}
+
+
+@pytest.mark.timeout(60)
+def test_a_run_stopped_by_node_keeps_the_stopping_model_s_earlier_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, store = _seed_answers(tmp_path, monkeypatch)
+
+    def generate(pn: str, *_: Any, **__: Any) -> Any:
+        gen_models.run_driver(pn, handler, [{"now": pn}])
+        if pn == "T9ZZ2":
+            gen_models.run_driver(pn, handler, [{"stop": pn}])
+        return {"product_code": pn}, {}
+
+    def run(job: dict[str, Any]) -> list[Any]:
+        if "stop" in job["requests"][0]:
+            raise gen_models.node.NodeError("every worker died")
+        return [{} for _ in job["requests"]]
+
+    monkeypatch.setattr(gen_models, "generate", generate)
+    monkeypatch.setattr(gen_models.DRIVERS, "run", run)
+    args = _args(tmp_path, 1)
+    args.answers = store
+    gen_models.DRIVERS.close()  # as an earlier run leaves it
+    with pytest.raises(gen_models.node.NodeError, match="T9ZZ2: every worker died"):
+        gen_models._generate_all(args, tmp_path, tmp_path / "out", quiet=True)
+    assert _kept(store) == {"T9ZZ1": 1, "T9ZZ2": 2, "T9ZZ3": 1, "T9ZZ4": 1, "T9ZZ5": 1}
+
+
+@pytest.mark.timeout(60)
+def test_a_run_whose_node_runtime_cannot_be_asked_says_so_once_and_stores_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handler, store = _seed_answers(tmp_path, monkeypatch)
+    before = {p.name: p.read_bytes() for p in store.iterdir()}
+
+    def no_runtime() -> str:
+        raise gen_models.answers.subprocess.CalledProcessError(1, ["node"])
+
+    fresh = gen_models.answers.AnswerStore(store, driver=gen_models.node.DRIVER, runtime=no_runtime)
+    monkeypatch.setattr(gen_models, "ANSWERS", fresh)
+
+    def generate(pn: str, *_: Any, **__: Any) -> Any:
+        gen_models.run_driver(pn, handler, [{"now": pn}])
+        return {"product_code": pn}, {}
+
+    monkeypatch.setattr(gen_models, "generate", generate)
+    args = _args(tmp_path, 1)
+    args.answers = store
+    gen_models.DRIVERS.close()  # as an earlier run leaves it
+    assert gen_models._generate_all(args, tmp_path, tmp_path / "out", quiet=True) == 0
+    err = capsys.readouterr().err
+    assert err.count("answers: cannot ask the Node runtime (") == 1
+    assert "answers: cannot ask the Node runtime (node exit 1); no job is stored\n" in err
+    assert f"answers: 0 jobs replayed, 0 asked of Node, 5 asked without the store ({store})" in err
+    assert {p.name: p.read_bytes() for p in store.iterdir()} == before
+
+
+@pytest.mark.timeout(60)
+def test_the_runtime_is_asked_before_the_first_model_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Asked in the parent, so the generating processes inherit the answer (one query, one
+    notice per run)."""
+    events: list[str] = []
+    store = tmp_path / "answers"
+
+    def runtime() -> str:
+        events.append("runtime")
+        return "v0"
+
+    fresh = gen_models.answers.AnswerStore(store, driver=gen_models.node.DRIVER, runtime=runtime)
+    monkeypatch.setattr(gen_models, "ANSWERS", fresh)
+
+    def generate(pn: str, *_: Any, **__: Any) -> Any:
+        events.append(pn)
+        return {"product_code": pn}, {}
+
+    monkeypatch.setattr(gen_models, "generate", generate)
+    args = _args(tmp_path, 1)
+    args.answers = store
+    gen_models.DRIVERS.close()  # as an earlier run leaves it
+    assert gen_models._generate_all(args, tmp_path, tmp_path / "out", quiet=True) == 0
+    assert events == ["runtime", *PNS]
+    events.clear()
+    args.answers = None  # --no-answers: Node is never asked about its runtime
+    unasked = gen_models.answers.AnswerStore(None, driver=gen_models.node.DRIVER, runtime=runtime)
+    monkeypatch.setattr(gen_models, "ANSWERS", unasked)
+    assert gen_models._generate_all(args, tmp_path, tmp_path / "out2", quiet=True) == 0
+    assert events == PNS
+
+
 @pytest.mark.timeout(60)
 def test_several_jobs_build_in_worker_processes_and_report_each_failure(tmp_path: Path) -> None:
     result = subprocess.run(
@@ -149,6 +285,7 @@ def test_several_jobs_build_in_worker_processes_and_report_each_failure(tmp_path
 # Answers --version as Node of the given version; any other run fails at once.
 FAKE_NODE = """#!/bin/sh
 if [ "$1" = "--version" ]; then echo @VERSION@; exit 0; fi
+if [ "$1" = "-p" ]; then echo '[{}, "UTC", "en-US"]'; exit 0; fi
 echo "fake node: broken" >&2
 exit 1
 """
@@ -172,6 +309,7 @@ def _cli(tmp_path: Path, node_version: str, jobs: int) -> subprocess.CompletedPr
         for name in ("labels", "trees", "titles", "shown", "released")
     ]
     paths = [f"--cache={cache}", f"--out={tmp_path / 'out'}", f"--jobs={jobs}"]
+    paths.append(f"--answers={tmp_path / 'answers'}")
     return subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "gen_models.py"), *PNS[:3], *inputs, *paths],
         env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"},
