@@ -14,12 +14,21 @@ from types import MappingProxyType
 from typing import Any, Final
 
 from .labels import choice_label, setting_name
-from .model_settings import IDENTIFIER, Setting, SettingKind, SettingRole, Value
+from .model_settings import (
+    IDENTIFIER,
+    Setting,
+    SettingKind,
+    SettingMeaning,
+    SettingRole,
+    Value,
+    unit_meaning,
+)
 from .settings import SettingUnit
 
 __all__ = [
     "LISTED_NOTE",
     "UNITS",
+    "UNIT_MEANINGS",
     "VOLUME_UNIT",
     "enum_label",
     "intify",
@@ -30,6 +39,7 @@ __all__ = [
     "range_spec",
     "specs_of",
     "td_default",
+    "td_meaning",
     "td_version",
 ]
 
@@ -39,19 +49,25 @@ _LOGGER = logging.getLogger(__name__)
 LISTED_NOTE: Final = "not in bundled data"
 
 #: TD unit -> setting unit; None drops the unit (a count, no unit, or a unit with no
-#: SettingUnit: a temperature bound in the device's display scale, a sound level).
+#: SettingUnit: a temperature in a scale the data does not give, a sound level). ``day`` /
+#: ``天`` is dropped too: no app screen shows a value carrying it in days (the screens that
+#: show one show seconds or a bare count).
 UNITS: Final[Mapping[str, SettingUnit | None]] = MappingProxyType(
     {
         "s": SettingUnit.SECONDS,
         "秒": SettingUnit.SECONDS,
         "毫秒": SettingUnit.MILLISECONDS,
-        "day": SettingUnit.DAYS,
-        "天": SettingUnit.DAYS,
+        "day": None,
+        "天": None,
         "无": None,
         "个": None,
         "degree": None,
         "decibel": None,
     }
+)
+#: TD unit -> meaning, for a unit that names what the value is without a SettingUnit.
+UNIT_MEANINGS: Final[Mapping[str, SettingMeaning]] = MappingProxyType(
+    {"degree": SettingMeaning.TEMPERATURE}
 )
 #: "音量" (volume) is a percentage only on a 0..100 or 1..100 scale.
 VOLUME_UNIT: Final = "音量"
@@ -66,6 +82,12 @@ def normalise_unit(raw: str, minimum: float | None, maximum: float | None) -> Se
     if raw == VOLUME_UNIT and minimum in (0, 1) and maximum == 100:
         return SettingUnit.PERCENT
     raise ValueError(f"unit {raw!r} has no mapping")
+
+
+def td_meaning(raw: str | None, unit: SettingUnit | None) -> SettingMeaning | None:
+    """The meaning of a setting with TD unit ``raw`` and setting unit ``unit``: the
+    unit's (:func:`~.model_settings.unit_meaning`), else the TD unit's, else None."""
+    return unit_meaning(unit) or (None if raw is None else UNIT_MEANINGS.get(raw))
 
 
 def _num(raw: Any) -> float | None:
@@ -186,9 +208,10 @@ def _listed_setting(code: str, prop: Mapping[str, Any]) -> Setting:
         minimum, maximum, step = intify(lo), intify(hi), intify(st)
     unit = None
     raw_unit = specs_of(prop).get("unit")
-    if isinstance(raw_unit, str) and raw_unit.strip():
+    raw_unit = raw_unit.strip() if isinstance(raw_unit, str) and raw_unit.strip() else None
+    if raw_unit is not None:
         try:
-            unit = normalise_unit(raw_unit.strip(), minimum, maximum)
+            unit = normalise_unit(raw_unit, minimum, maximum)
         except ValueError:
             _LOGGER.debug("%s %s: unit %r has no mapping, dropped", code, ident, raw_unit)
     default = td_default(prop, kind.value)
@@ -204,6 +227,7 @@ def _listed_setting(code: str, prop: Mapping[str, Any]) -> Setting:
         maximum=maximum,
         step=step,
         unit=unit,
+        meaning=td_meaning(raw_unit, unit),
         default=default,
         labels=MappingProxyType(labels),
         writable=False,

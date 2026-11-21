@@ -6,12 +6,13 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices.model_settings import SettingKind, SettingRole
+from eufy_home_security.devices.model_settings import SettingKind, SettingMeaning, SettingRole
 from eufy_home_security.devices.settings import SettingUnit
 from eufy_home_security.devices.td import (
     LISTED_NOTE,
     normalise_unit,
     parse_thing_description,
+    td_meaning,
     td_version,
 )
 from eufy_home_security.testing.cloud import enum_property, range_property, thing_description
@@ -64,6 +65,24 @@ def test_an_unmapped_unit_is_dropped_not_raised(raw: str) -> None:
     assert s.unit is None
 
 
+@pytest.mark.parametrize(
+    ("raw", "meaning"),
+    [
+        ("秒", SettingMeaning.DURATION),
+        ("day", None),
+        ("degree", SettingMeaning.TEMPERATURE),
+        ("decibel", None),
+        ("个", None),
+    ],
+)
+def test_a_listed_setting_takes_its_meaning_from_the_unit(
+    raw: str, meaning: SettingMeaning | None
+) -> None:
+    (s,) = parse(range_property("level_x", 50, 100, unit=raw)).values()
+    assert s.meaning is meaning
+    assert td_meaning(raw, None) is (meaning if raw == "degree" else None)
+
+
 @pytest.mark.parametrize("raw", ["degree", "decibel"])
 def test_a_unit_with_no_setting_unit_is_dropped(raw: str) -> None:
     """A temperature bound or a sound level carries no setting unit."""
@@ -72,7 +91,8 @@ def test_a_unit_with_no_setting_unit_is_dropped(raw: str) -> None:
 
 def test_normalise_unit_raises_value_error_when_unmapped() -> None:
     assert normalise_unit("个", 0, 3) is None
-    assert normalise_unit("day", None, None) is SettingUnit.DAYS
+    assert normalise_unit("day", None, None) is None
+    assert normalise_unit("天", 10, 120) is None
     with pytest.raises(ValueError, match="lux"):
         normalise_unit("lux", 0, 100)
 

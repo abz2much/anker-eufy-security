@@ -249,21 +249,76 @@ def test_variants_of_one_primary_may_share_its_title() -> None:
     assert settings["mode"]["name"] == settings["mode__v1"]["name"] == "Model mode"
 
 
-def test_app_unit_applies_on_its_page_and_never_overrides_the_td() -> None:
+def test_app_unit_applies_on_its_page_and_wins_over_the_td() -> None:
     gate = {"when": {"mode": "CUSTOM"}, "shows": ["clip"], "page": "Custom"}
     settings = _settings()
     settings["clip"].update(min=5, max=60)
     tree = _tree(gates=[gate], **RN_TREE)
-    join.join(PN, settings, _td(MODE), None, tree, titles=_titles())
+    counts = join.join(PN, settings, _td(MODE), None, tree, titles=_titles())
     assert settings["clip"]["unit"] == "s"
+    assert counts["unit:app"] == 1
     elsewhere = _settings()
     join.join(PN, elsewhere, _td(MODE), None, _tree(**RN_TREE), titles=_titles())
     assert "unit" not in elsewhere["clip"]
     days = _settings()
     days["clip"]["unit"] = "d"
     counts = join.join(PN, days, _td(MODE), None, tree, titles=_titles())
-    assert days["clip"]["unit"] == "d"
-    assert counts["unit:app differs from TD"] == 1
+    assert days["clip"]["unit"] == "s"
+    assert counts["unit:app replaces TD"] == 1
+    native = _settings()
+    native["clip"].update(unit="d", page="Custom")
+    join.join(PN, native, _td(MODE), None, _tree(settings_ui="native"), titles=_titles())
+    assert native["clip"]["unit"] == "d"
+
+
+def test_a_pageless_app_unit_applies_on_every_model_and_none_drops_the_td_unit() -> None:
+    units = {"clip": {"unit": None, "page": None}, "flag": {"unit": "s", "page": None}}
+    for tree in (None, _tree(settings_ui="native"), _tree(**RN_TREE)):
+        settings = _settings()
+        settings["clip"]["unit"] = "d"
+        settings["clip__v1"] = {"kind": "range", "unit": "d"}
+        counts = join.join(PN, settings, _td(MODE), None, tree, titles=_titles(units=units))
+        assert "unit" not in settings["clip"]
+        assert "unit" not in settings["clip__v1"]
+        assert settings["flag"]["unit"] == "s"
+        assert counts["unit:app drops TD unit"] == 2
+        assert counts["unit:app"] == 1
+
+
+def test_app_meanings_apply_to_the_identifier_and_its_variants_on_every_model() -> None:
+    meanings = {
+        "flag": {"meaning": "opening"},
+        "clip": {"meaning": "timestamp"},
+        "mode": {"meaning": "tamper"},
+    }
+    for tree in (None, _tree(settings_ui="native"), _tree(**RN_TREE)):
+        settings = _settings()
+        settings["flag__v2"] = {"kind": "bool"}
+        counts = join.join(PN, settings, _td(MODE), None, tree, titles=_titles(meanings=meanings))
+        got = {k: v.get("meaning") for k, v in settings.items()}
+        assert got == {
+            "mode": None,
+            "clip": "timestamp",
+            "flag": "opening",
+            "alerts": None,
+            "flag__v2": "opening",
+        }
+        assert counts["meaning:app"] == 3
+        assert counts["meaning:binary on a non-bool"] == 1
+
+
+def test_an_app_meaning_wins_over_the_td_unit_meaning() -> None:
+    settings = _settings()
+    settings["clip"]["meaning"] = "temperature"
+    meanings = {"clip": {"meaning": "timestamp"}}
+    join.join(PN, settings, _td(MODE), None, None, titles=_titles(meanings=meanings))
+    assert settings["clip"]["meaning"] == "timestamp"
+
+
+@pytest.mark.parametrize("rule", [{"meaning": "door"}, {}, {"meaning": None}])
+def test_a_meaning_rule_naming_no_meaning_is_refused(rule: dict[str, Any]) -> None:
+    with pytest.raises(join.GeneratorError, match="flag is not a meaning"):
+        join.join(PN, _settings(), _td(MODE), None, None, titles=_titles(meanings={"flag": rule}))
 
 
 def test_names_and_units_need_a_model_on_the_rn_settings_screens() -> None:
@@ -504,8 +559,8 @@ def test_generated_t8160_custom_recording_settings_apply_when_mode_is_3() -> Non
         ("s", 2, 60, "s"),
         ("秒", None, None, "s"),
         ("毫秒", None, None, "ms"),
-        ("day", 10, 120, "d"),
-        ("天", 10, 120, "d"),
+        ("day", 10, 120, None),
+        ("天", 10, 120, None),
         ("音量", 1, 100, "%"),
         ("音量", 0, 100, "%"),
         ("无", 0, 1, None),

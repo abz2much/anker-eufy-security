@@ -472,8 +472,7 @@
    },
    "role": "diagnostic",
    "section": "recording",
-   "step": 1,
-   "unit": "d"
+   "step": 1
   },
   "detection_sensitivity": {
    "access": "rw",
@@ -2347,8 +2346,7 @@
    },
    "role": "diagnostic",
    "section": "recording",
-   "step": 1,
-   "unit": "d"
+   "step": 1
   },
   "reset_device_mode": {
    "access": "ro",
@@ -2564,6 +2562,7 @@
    "section": "recording",
    "shown": "page",
    "step": 1,
+   "unit": "s",
    "write": {
     "cmd": 1250,
     "params": {
@@ -2597,6 +2596,7 @@
    "section": "recording",
    "shown": "page",
    "step": 1,
+   "unit": "s",
    "write": {
     "cmd": 1249,
     "params": {
@@ -2742,8 +2742,7 @@
    },
    "role": "diagnostic",
    "section": "recording",
-   "step": 1,
-   "unit": "d"
+   "step": 1
   }
  },
  "source": {

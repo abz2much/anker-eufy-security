@@ -1518,6 +1518,7 @@
   "device_packages_uncollected_check_time": {
    "access": "ro",
    "kind": "string",
+   "meaning": "time_of_day",
    "note": "handler ignores the value",
    "page": "UncollectedPackageAlert",
    "read": {
@@ -1583,6 +1584,7 @@
    "role": "setting",
    "section": "doorbell",
    "shown": "page",
+   "unit": "s",
    "write": {
     "cmd": 1350,
     "subCmd": 6438,
@@ -2150,8 +2152,7 @@
    "read": null,
    "role": "setting",
    "section": "picture",
-   "step": 1,
-   "unit": "d"
+   "step": 1
   },
   "led_on_off": {
    "access": "rw",
