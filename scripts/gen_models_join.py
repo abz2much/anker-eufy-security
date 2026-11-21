@@ -17,7 +17,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from gen_models_codec import GeneratorError, public_value, specs_of, value_key
+from gen_models_codec import GeneratorError, kind_of, public_value, specs_of, value_key
 
 from eufy_home_security.devices.labels import sentence_case, setting_name
 from eufy_home_security.devices.model_settings import BINARY_MEANINGS, SettingMeaning
@@ -27,8 +27,11 @@ from eufy_home_security.devices.td import normalise_unit as _td_unit
 __all__ = [
     "STATUS_NOTE",
     "GeneratorError",
+    "apply_domains",
+    "finish_domains",
     "hold_members",
     "join",
+    "mark_structured",
     "normalise_unit",
     "screen_values",
     "source_block",
@@ -363,6 +366,141 @@ def switches(pn: str, titles: Mapping[str, Any] | None) -> dict[str, dict[bool, 
             raise GeneratorError(f"{pn}: switch {ident} is listed with texts and as a bool")
         out[ident] = {True: True, False: False}
     return out
+
+
+_DOMAIN_FILL = "fill"  # only where the product's TD declares no values or range
+_DOMAIN_REPLACE = "replace"  # the app's screen ignores the TD's domain
+_NO_DOMAIN = ("other", "string")  # TD kinds that declare no values or range
+
+
+def _domain_spec(pn: str, ident: str, rule: Any) -> dict[str, Any]:
+    """The TD ``data_type`` a ``domains`` rule stands for; GeneratorError on a bad shape."""
+    if not isinstance(rule, Mapping) or not isinstance(rule.get("source"), str):
+        raise GeneratorError(f"{pn}: domain {ident} needs a source text")
+    if rule.get("td") not in (_DOMAIN_FILL, _DOMAIN_REPLACE):
+        raise GeneratorError(f"{pn}: domain {ident} needs td fill or replace")
+    if rule.get("kind") == "enum":
+        labels = rule.get("labels")
+        if (
+            not isinstance(labels, Mapping)
+            or not labels
+            or not all(re.fullmatch(r"-?\d+", str(k)) for k in labels)
+            or not all(isinstance(v, str) and v.strip() for v in labels.values())
+        ):
+            raise GeneratorError(f"{pn}: domain {ident} needs integer-keyed labels")
+        fallback = rule.get("fallback")
+        if fallback is not None and str(fallback) not in labels:
+            raise GeneratorError(f"{pn}: domain {ident} fallback is not one of its labels")
+        rows = [{"value": str(k), "desc": v, "associatedValue": str(k)} for k, v in labels.items()]
+        return {"type": "enum", "specs": {"eunmList": rows}}
+    if rule.get("kind") == "range":
+        bounds = [rule.get(k) for k in ("min", "max", "step")]
+        ints = [b for b in bounds if isinstance(b, int) and not isinstance(b, bool)]
+        if len(ints) != len(bounds):
+            raise GeneratorError(f"{pn}: domain {ident} needs integer min, max and step")
+        lo, hi, step = ints
+        if not lo < hi or step <= 0:
+            raise GeneratorError(f"{pn}: domain {ident} has an empty range")
+        if rule.get("fallback") is not None:
+            raise GeneratorError(f"{pn}: domain {ident} fallback needs kind enum")
+        return {"type": "int", "specs": {"min": lo, "max": hi, "step": step}}
+    raise GeneratorError(f"{pn}: domain {ident} kind must be enum or range")
+
+
+def apply_domains(
+    pn: str,
+    td: Mapping[str, Any],
+    titles: Mapping[str, Any] | None,
+    counts: dict[str, int],
+    applied: dict[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """``td`` with each property named in the title file's ``domains`` given the domain the
+    app's screen offers (enum labels or an integer range), before the handler sweep.
+
+    A ``fill`` rule applies where the product's own TD declares no values or range (kind
+    ``other`` or ``string``), a ``replace`` rule always (the screen never reads the TD's
+    domain). The TD default is kept when it is one of an enum's values; else it becomes the
+    rule's ``fallback`` (the value the screen shows for any other one), or is dropped
+    without one. ``applied`` receives ``{identifier: rule}`` for each property changed
+    (:func:`finish_domains`). Raises GeneratorError on a malformed rule.
+    """
+    rules = (titles or {}).get("domains") or {}
+    if not isinstance(rules, Mapping):
+        raise GeneratorError(f"{pn}: domains must be a mapping of identifier to rule")
+    specs = {ident: _domain_spec(pn, ident, rule) for ident, rule in rules.items()}
+    props = []
+    for prop in td.get("properties", []):
+        ident = prop.get("identifier") if isinstance(prop, dict) else None
+        base = _VERSIONED.sub(r"\1", ident) if isinstance(ident, str) else ""
+        rule = rules.get(base)
+        if rule is None or (rule["td"] == _DOMAIN_FILL and kind_of(prop) not in _NO_DOMAIN):
+            props.append(prop)
+            continue
+        dtype = dict(specs[base])
+        marked = {
+            str(row.get("value")): row["isDefault"]
+            for row in specs_of(prop).get("eunmList") or ()
+            if isinstance(row, dict) and "isDefault" in row
+        }
+        if "eunmList" in dtype["specs"] and marked:
+            rows = [
+                {**r, "isDefault": marked.get(r["value"], 0)} for r in dtype["specs"]["eunmList"]
+            ]
+            dtype["specs"] = {**dtype["specs"], "eunmList": rows}
+        default = specs_of(prop).get("defaultValue")
+        labels = rule.get("labels")
+        if default is not None and labels is not None and str(default) not in labels:
+            fallback = rule.get("fallback")
+            default = None if fallback is None else str(fallback)
+            _count(counts, "domain:default outside the labels")
+        if default is not None:
+            dtype["specs"] = {**dtype["specs"], "defaultValue": default}
+        props.append({**prop, "data_type": dtype})
+        if applied is not None:
+            applied[ident] = rule
+        _count(counts, f"domain:app {rule['td']}")
+    return {**td, "properties": props}
+
+
+def finish_domains(
+    settings: Settings, applied: Mapping[str, Mapping[str, Any]], counts: dict[str, int]
+) -> None:
+    """Complete the settings :func:`apply_domains` gave an app domain: an enum's labels are
+    the screen's texts as written, and a rule's ``fallback`` goes into each read
+    (``read.fallback``: a reported value outside the values reads as it)."""
+    for key, rule in applied.items():
+        entry = settings.get(key)
+        if entry is None:
+            continue
+        parts = [entry, *((c.get("entry") or {}) for c in entry.get("contexts") or ())]
+        if rule.get("kind") == "enum" and entry.get("kind") == "enum":
+            for part in parts:
+                if "labels" in part:
+                    part["labels"] = {str(k): v for k, v in rule["labels"].items()}
+        fallback = rule.get("fallback")
+        if fallback is None:
+            continue
+        for part in parts:
+            if isinstance(part.get("read"), dict):
+                part["read"]["fallback"] = public_value(str(fallback))
+                _count(counts, "domain:read fallback")
+
+
+def mark_structured(
+    pn: str, settings: Settings, titles: Mapping[str, Any] | None, counts: dict[str, int]
+) -> None:
+    """Mark ``structured`` the settings whose value the app's screen builds and parses as
+    JSON itself (title file ``structured``: ``{identifier: {source}}``), on the identifier
+    and its variants. A writable one keeps its control: a consumer shows no free-text entity
+    for a structured value."""
+    rules = (titles or {}).get("structured") or {}
+    for ident, rule in rules.items():
+        if not isinstance(rule, Mapping) or not isinstance(rule.get("source"), str):
+            raise GeneratorError(f"{pn}: structured {ident} needs a source text")
+        for key in _members(settings, ident):
+            if not settings[key].get("structured"):
+                settings[key]["structured"] = True
+                _count(counts, "structured:app")
 
 
 def screen_values(pn: str, titles: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:

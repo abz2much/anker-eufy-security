@@ -1058,7 +1058,8 @@ A closed session (`async_close`) never reconnects on its own — build a new
 
     Never make a structured value an entity's state: a setting with `structured` True
     (a JSON object or array, or its text, as the device reports it, such as
-    `arming_get_alarm_*_mode`) is never a state, whatever its role. Put it into an
+    `arming_get_alarm_*_mode`) is never a state, whatever its role or control (a writable
+    light schedule keeps control `TEXT`: still no text entity). Put it into an
     attribute of a related entity, or create no entity for it; it is known before the
     first read. A state is also limited to 255 characters.
   - `applies_when`: see [`applies_when`](#applies_when).
@@ -1578,7 +1579,9 @@ fails discovery.
 
 When the thing description arrives, `station.settings_for(device_sn)` lists the model's
 properties with domain, labels, unit and default, all read-only: `writable` and
-`readable` are False and `note` is `"not in bundled data"`. There is no codec, so the
+`readable` are False and `note` is `"not in bundled data"`. The domains the eufy app's
+screens give some settings (a select in place of a bare number) come with the bundled model
+files: a product listed only from its thing description keeps that description's domain. There is no codec, so the
 state never reports a value and `async_set_setting` raises `UnsupportedError`. Offer
 them as disabled diagnostic entities at most, or not at all. The listing is held in
 memory only; after a restart it is back once discovery has run. A later library release

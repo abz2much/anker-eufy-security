@@ -396,9 +396,17 @@ def test_ecb_path_does_not_depend_on_the_caller_type(value: object) -> None:
     assert (wire.cmd, wire.value) == (1253, 1)
 
 
-def test_ecb_command_with_a_non_numeric_value_is_refused() -> None:
+def test_ecb_command_with_a_non_numeric_value_is_refused(data_root: Path) -> None:
+    """An open-kind setting on an ECB command takes only an integer value."""
+    write = {
+        "cmd": 1253,
+        "params": {"timeSystem": "$v"},
+        "update": {"needUpdate": True, "cmd": 1253, "paramValue": "$v:str"},
+    }
+    entry = {**GOOD_ENTRY, "access": "rw", "kind": "other", "role": "setting", "write": write}
+    _write_model(data_root, {"time_format_set": entry})
     with pytest.raises(ValueError, match="1253"):
-        _setting("T8030", "time_format_set").encode("abc", ALONE)
+        settings_of("T0001")["time_format_set"].encode("abc", ALONE)
 
 
 def test_ecb_value_repeated_under_two_names_goes_ecb() -> None:
@@ -878,6 +886,94 @@ def test_binary_meanings_are_the_sensor_card_statuses() -> None:
         SettingMeaning.COLD,
         SettingMeaning.SIREN_RINGING,
     } == model_settings.BINARY_MEANINGS
+
+
+def test_storage_types_carry_the_apps_two_choices_on_every_model() -> None:
+    """The app's storage-type screen offers the same two labelled choices whatever the TD."""
+    labels = {0: "Only Events", 1: "Continuous Recording and Events"}
+    seen = 0
+    for code in bundled_codes():
+        for key in ("hb_connect_storage_type", "hb_connect_nas_storage_type"):
+            setting = settings_of(code).get(key)
+            if setting is None:
+                continue
+            seen += 1
+            assert setting.kind is SettingKind.ENUM, (code, key)
+            assert dict(setting.labels) == labels, (code, key)
+    assert seen >= 70
+
+
+def test_app_domains_fill_settings_the_td_leaves_open() -> None:
+    """Ring volume, response delay, time format and recording type get the app's domain;
+    the T8110 family's light schedule is a structured value."""
+    volume = settings_of("T8220")["device_chime_hb_ring_volume"]
+    assert (volume.kind, volume.minimum, volume.maximum) == (SettingKind.RANGE, 1, 26)
+    delay = settings_of("T8217")["device_response_timeout_delay_time"]
+    assert (delay.kind, delay.values) == (SettingKind.ENUM, (0, 5, 10, 15))
+    time_format = settings_of("T8030")["time_format_set"]
+    assert dict(time_format.labels) == {0: "12-hour", 1: "24-hour"}
+    recording = settings_of("T7100")["device_recording_type"]
+    assert dict(recording.labels) == {2: "Event-based", 3: "Continuous"}
+    schedule = settings_of("T8110")["spotlight_schedule_config"]
+    assert schedule.structured
+    assert schedule.writable
+
+
+def test_the_recording_type_reads_any_other_value_as_continuous() -> None:
+    """The app's screen shows a value outside Event-based/Continuous as Continuous."""
+    for code in ("T7100", "T8E00", "T8P00", "T8P10"):
+        recording = settings_of(code)["device_recording_type"]
+        assert recording.default == 3, code
+        assert [recording.decode(raw) for raw in ("0", "2", "3", "x")] == [3, 2, 3, 3], code
+        with pytest.raises(ValueError, match="device_recording_type"):
+            recording.validate(0)
+
+
+def test_open_time_formats_get_the_twelve_or_twenty_four_hour_choice() -> None:
+    for code in ("T8001", "T8002", "T8023", "T8024"):
+        time_format = settings_of(code)["time_format_set"]
+        assert (time_format.kind, time_format.values) == (SettingKind.ENUM, (0, 1)), code
+        assert dict(time_format.labels) == {0: "12-hour", 1: "24-hour"}, code
+
+
+def test_the_response_delay_labels_are_the_screens_texts() -> None:
+    delay = settings_of("T8214")["device_response_timeout_delay_time"]
+    assert dict(delay.labels) == {0: "0s", 5: "5s", 10: "10s", 15: "15s"}
+
+
+_FALLBACK_READ: dict[str, object] = {"param": 6010, "map": None, "fallback": 3}
+_FALLBACK_ENTRY = {**GOOD_ENTRY, "kind": "enum", "values": [2, 3], "read": _FALLBACK_READ}
+
+
+def test_a_read_fallback_decodes_every_value_outside_the_values(data_root: Path) -> None:
+    _write_model(
+        data_root,
+        {
+            "rec": _FALLBACK_ENTRY,
+            "mapped": {**_FALLBACK_ENTRY, "read": {**_FALLBACK_READ, "map": {"9": 2}}},
+        },
+    )
+    rec = settings_of("T0001")["rec"]
+    assert [rec.decode(raw) for raw in ("2", "3", "0", "", "abc")] == [2, 3, 3, 3, 3]
+    assert rec.decode(None) is None  # unreported: the default path decides
+    mapped = settings_of("T0001")["mapped"]
+    assert [mapped.decode(raw) for raw in ("9", "2")] == [2, 3]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {**_FALLBACK_ENTRY, "read": {**_FALLBACK_READ, "fallback": 4}},
+        {**_FALLBACK_ENTRY, "kind": "range", "min": 0, "max": 5, "step": 1},
+    ],
+    ids=["outside-values", "not-enum"],
+)
+def test_a_read_fallback_must_be_one_of_the_enums_values(
+    data_root: Path, entry: dict[str, object]
+) -> None:
+    _write_model(data_root, {"rec": entry})
+    with pytest.raises(ModelDataError, match=r"T0001\.json: rec: read fallback"):
+        settings_of("T0001")
 
 
 @pytest.mark.parametrize("value", ["yes", 1, None])
