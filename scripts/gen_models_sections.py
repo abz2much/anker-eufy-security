@@ -23,8 +23,10 @@ type Settings = dict[str, dict[str, Any]]
 # Every app page the settings files name. None: the page holds settings of several
 # sections, so the identifier decides.
 PAGE_SECTIONS: dict[str, str | None] = {
+    "APNInformationScreen": "network",
     "AboutDevice": "system",
     "AlarmSound": "alarm",
+    "AmbientLight": "picture",
     "AntiTheftDetection": None,
     "AudioSettings": None,
     "BottleWasherHomeScreen": None,
@@ -47,6 +49,7 @@ PAGE_SECTIONS: dict[str, str | None] = {
     "IPCRecordingQualityScreen": "recording",
     "LightSettingMain": "picture",
     "MotionActivatedLight": "picture",
+    "MotionActivatedLightV2": "picture",
     "MotionDetection": None,
     "MotionDetectionGuideScreen": "detection",
     "MotionDetectionV2": "detection",
@@ -81,6 +84,7 @@ PAGE_SECTIONS: dict[str, str | None] = {
     "ThingDeveloperScreen": None,
     "UncollectedPackageAlert": "detection",
     "VideoSettings": None,
+    "VoiceExpulsion": "detection",
     "VoiceExpulsionMonitoring": "detection",
     "WiFiConnection": "network",
 }
@@ -134,6 +138,8 @@ KEY_RULES: tuple[tuple[str, str], ...] = (
         "picture",
     ),
     (r"light_.*|manual_light_brightness|led_.*|indicator_led_status|breathing_light_.*", "picture"),
+    (r"timer_for_lights|color_nightvision_switch|motion_actived_light_.*", "picture"),
+    (r"ambient_light_.*", "picture"),
     (r"watermark_set|rotate_image_180_on_off|video_mirror_mode_set|video_setting_.*", "picture"),
     (r"video_settings_led_activate_time|view_mode|(video_)?watch_view_mode", "picture"),
     (r"video_quality_(hdr|wdr|distortion_correction)_switch", "picture"),
@@ -154,6 +160,7 @@ KEY_RULES: tuple[tuple[str, str], ...] = (
     (r"device_cross_cam_.*|device_linkage_mode|device_wildlife_watch_mode_switch", "detection"),
     (r"sensor_motion_.*|sensor_grass_.*|(device_)?radar_.*|device_rain_mode", "detection"),
     (r"smart_lock_rain_mode_switch|support_smart_search_switch", "detection"),
+    (r"voice_expulsion_.*", "detection"),
     # Recording.
     (r"record_.*|live_streaming_resolution.*|device_continuous_.*", "recording"),
     (r"device_pre_recording_switch|device_recording_.*|device_event_.*", "recording"),
@@ -194,6 +201,7 @@ KEY_RULES: tuple[tuple[str, str], ...] = (
     (r"setting_current_connection_type|device_connect_type|device_to_hb_connect_type", "network"),
     (r"device_generated_ssid_prefix|p2p_.*|device_p2p_did|get_device_old_p2p_did", "network"),
     (r".*webrtc.*|device_rtsp_.*|homekit_.*|is_support_mqtt|is_support_ble", "network"),
+    (r"alexa_.*", "network"),
     (
         r"device_extender_info|device_sync_data_on_repetor|discover_third_party_device_switch",
         "network",

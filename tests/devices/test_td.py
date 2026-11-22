@@ -52,14 +52,17 @@ def test_range_with_step_unit_and_default() -> None:
 
 
 @pytest.mark.parametrize(
-    ("lo", "hi", "unit"), [(0, 100, SettingUnit.PERCENT), (1, 100, SettingUnit.PERCENT)]
+    ("lo", "hi", "unit"),
+    [(0, 100, SettingUnit.PERCENT), (1, 100, SettingUnit.PERCENT), (0, 10, None), (1, 63, None)],
 )
-def test_volume_is_a_percentage_on_a_hundred_scale(lo: int, hi: int, unit: SettingUnit) -> None:
+def test_volume_is_a_percentage_on_a_hundred_scale(
+    lo: int, hi: int, unit: SettingUnit | None
+) -> None:
     (s,) = parse(range_property("speaker_volume", lo, hi, unit="音量")).values()
     assert s.unit is unit
 
 
-@pytest.mark.parametrize("raw", ["lux", "音量"])
+@pytest.mark.parametrize("raw", ["lux", "candela"])
 def test_an_unmapped_unit_is_dropped_not_raised(raw: str) -> None:
     (s,) = parse(range_property("speaker_volume", 0, 10, unit=raw)).values()
     assert s.unit is None
@@ -93,6 +96,10 @@ def test_normalise_unit_raises_value_error_when_unmapped() -> None:
     assert normalise_unit("个", 0, 3) is None
     assert normalise_unit("day", None, None) is None
     assert normalise_unit("天", 10, 120) is None
+    assert normalise_unit("音量", 1, 100) is SettingUnit.PERCENT
+    assert normalise_unit("音量", 1, 63) is None
+    with pytest.raises(ValueError, match="音量"):
+        normalise_unit("音量", None, 100)
     with pytest.raises(ValueError, match="lux"):
         normalise_unit("lux", 0, 100)
 
