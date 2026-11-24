@@ -32,7 +32,7 @@ are 1-space-indented JSON with a trailing newline, and a re-run gives the same b
 | `min`, `max`, `step`, `default` | From the TD where it gives them; `default` is the eufy app's own where the app shows another value while the device reports none (`device_cross_cam_assistance_switch` on a T8030: on); an enum's `default` is always one of its `values` |
 | `unit` | The unit the app's screen shows: a settings-page control's on the page the setting is on, on a model whose settings the app's RN screens render, or a screen that reads the property wherever it sits (the clip length and retrigger interval: `s` on every model; the power-manager counters show a bare number: no unit); it wins over the TD unit. Else the TD unit normalised to `s`, `ms` or `%` (the TD's `day` is dropped: no app screen shows those values in days; its volume unit is `%` on a 0..100 or 1..100 scale and dropped on any other, a bare level); absent otherwise |
 | `meaning` | What the app reads the value as, where its own code names the property: a security sensor's card status (`opening`, `tamper`, `low_battery`, `moisture`, `cold`, `siren_ringing`; bool settings only), `timestamp` (epoch milliseconds), `time_of_day` (`HH:MM`); or `temperature` from the TD unit `degree`. Absent otherwise: the loader then derives it from `unit` (a time unit: `duration`, `%`: `percent`) |
-| `access` | `rw`: the handler has a value-dependent write. `ro`: it has none, or the setting is a status the eufy app only reads (`hb_keypad_is_password_set`) |
+| `access` | `rw`: the handler has a value-dependent write. `ro`: it has none, or the setting is a status the eufy app only reads (`hb_keypad_is_password_set`, `device_back_screen_connect_status`). The handler's write is probed for every property, whatever the TD's `access_mode` declares (the app does not check it before writing); a property the TD does not declare writable (no `W`) is `rw` only in a context where its write also gives a `read`: getProperty returns the written value (the motion light switch `motion_actived_light_switch` of a T8420), or the setting is an enum read by the inverse of its write (`read` below) |
 | `write` | Recipe template (base context, below) |
 | `write_table` | `{"<value>": recipe}` when the recipe's shape depends on the value. It replaces `write` |
 | `read` | `{"param": <id>, "map": null}`: the parameter's value is the public value's string form. `{"param": <id>, "map": {"<param value>": <public value>}}`: decode through the map. Either may carry `view` (below). `fallback` (an enum's value): any reported value outside the values reads as it, as the eufy app's screen shows it (the recording type `device_recording_type` reads `3`, Continuous); writing a value outside the values is still refused. `null`: not readable. The generator takes it from the handler's getProperty of each written value; for a setting without a write, from the one parameter the handler fills it from (located once, in the base context: the parameter ids the handler's code names are held at two values, in ascending and in descending order, and the property is read back by name, else by command id), held at each value's string form. Such a read carries `"no_default": true`: unreported, the setting reads None, never its `default`. It stays `null` when several parameters decide the value (in either order, or together), when a bool does not read as a boolean for every value held (`"2"` too), or when an open kind (`string`, `other`) does not read a multi-digit number and a JSON object back unchanged; an `other` is also read as a number when each integer text reads back as that integer, the JSON object does not read as another structure, no other property reads its parameter and its own write, if any, stores the number as is (a property that reads one field of a JSON value stays `null`; reading such fields is not described). An enum whose getProperty does not return the written value, but whose write stores every value as its own parameter value (no failed conversion such as `NaN`), is read by the inverse of the write unless a per-view read decodes it: the value read is the one the client wrote. The eufy app's own display of the watermark setting (T8414, T8440, T8442) differs from it |
@@ -189,12 +189,12 @@ Recipe templates are the handler's recipe with the value positions replaced:
 |---|---|
 | `"$v"` | The public value as is |
 | `"$v:str"` | Its string form (bools as `"0"`/`"1"`) |
-| `"$v:int"` | Its int form (bools as `0`/`1`) |
+| `"$v:int"` | Its int form (bools as `0`/`1`, a digit string as its number). An `other` setting's value is also written as the text of each of its probes (`"0"`, `"1"`): a leaf the handler fills with that text's number is `$v:int`, one it fills with the text stays `$v` |
 | `{"$map": {"<value>": x}}` | `x` for the value's key (`"3"`, `"true"`). Covers every enum value, or `false`/`true` |
 | `{"$affine": [a, b]}` | `a * value + b`, an int when integral |
 | `"$channel"` | The device's channel (3 as a station child, 0 standalone in the samples) |
 | `"$device_sn"`, `"$station_sn"` | The device's and its station's serial |
-| `"$param:<id>:int"`, `"$param:<id>:str"` | The device's current value of parameter `<id>`, as an int or as the string. A leaf the handler fills from the device's parameters: null in every sweep (the parameter absent) and that value with the parameter set to two values the model's writes give it. A T8170's 2731 write sends `"mode": "$param:6243:int"` |
+| `"$param:<id>:int"`, `"$param:<id>:str"` | The device's current value of parameter `<id>`, as an int or as the string. A leaf the handler fills from the device's parameters: null in every sweep (the parameter absent) and that value with the parameter set to two values the file's writes give it. A T8170's 2731 write sends `"mode": "$param:6243:int"` |
 
 `write_table` uses the same forms. Volatile keys (`transaction`,
 `buildTimestamp`) are dropped. All other keys of the handler's recipe are kept: `cmd`,
@@ -205,7 +205,7 @@ Recipe templates are the handler's recipe with the value positions replaced:
 
 | Note | Meaning |
 |---|---|
-| `no handler write path` | The TD marks the property writable, but setProperty gives no recipe |
+| `no handler write path` | The TD declares the property writable, but setProperty gives no recipe |
 | `handler ignores the value` | Every value gives the same recipe |
 | `handler rejects the probed values` | The handler threw or returned an error for every probe |
 | `handler rejects some values` | Some domain values give no recipe |
@@ -216,7 +216,8 @@ Recipe templates are the handler's recipe with the value positions replaced:
 | `round trip does not return the written value` | `rw` with `read: null`: getProperty does not decode the written value back, and the write is no inverse-readable enum (two values share a parameter value, or it is no enum) |
 | `status the eufy app only reads` | `ro` with its read: the app shows the value and offers no control for it |
 
-A TD property that is not writable is `ro` without a note. `set_alarm_type` (and its
+A property the TD does not declare writable and that the library does not write is `ro`
+without a note, read as its handler fills it. `set_alarm_type` (and its
 `__v<n>` forms) is not in the files: it is the device siren, an action rather than a
 setting, served by `Station.async_trigger_device_alarm` from its own generated table
 ([commands.md § Device siren](../protocol/commands.md#device-siren-declared-app)).

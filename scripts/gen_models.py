@@ -2,12 +2,12 @@
 
 For each model in the cache (``<cache>/<PN>/{td.json, <PN>Handle.mix.js}``), run the
 vendor handler through ``scripts/gen_models_driver.js`` with setProperty over every
-writable property's domain, in a station-child and a standalone context, infer the write
-codecs (``scripts/gen_models_codec.py``), feed each written recipe's parameter dump back
-to getProperty for the read codec (a setting without a write: the parameter getProperty
-fills it from, ``locate_params``), join the app's labels and settings layout
-(``scripts/gen_models_join.py``) with the app's setting titles, units and variant pairs,
-give each setting its role and where the app shows it (``--shown``,
+property's domain (whatever its ``access_mode``, :func:`td_writable`), in a station-child
+and a standalone context, infer the write codecs (``scripts/gen_models_codec.py``), feed
+each written recipe's parameter dump back to getProperty for the read codec (a setting
+without a write: the parameter getProperty fills it from, ``locate_params``), join the
+app's labels and settings layout (``scripts/gen_models_join.py``) with the app's setting
+titles, units and variant pairs, give each setting its role and where the app shows it (``--shown``,
 ``scripts/gen_models_roles.py``), add the battery reads and the handler's grouping of an
 ``SDINFO_EX`` status (``sd_status_groups``), and write ``<out>/<PN>.json``, then
 ``<out>/INDEX.json``, the sorted list of every ``<PN>.json`` in ``<out>``.
@@ -1149,16 +1149,45 @@ def stores_failed_conversion(rows: list[tuple[Any, dict[str, Any] | None]]) -> b
     )
 
 
+def write_read(
+    kind: str, raw: list[tuple[Any, dict[str, Any] | None]], samples: list[Any]
+) -> tuple[dict[str, Any] | None, str | None, bool]:
+    """``(read, note, inverse)`` of a written setting from the round trip of its swept
+    writes ``raw`` (``samples``: :func:`read_samples`); ``inverse`` when the read is the
+    inverse of an enum's write, taken only when no write stores a failed conversion."""
+    read, note = codec.infer_read(kind, samples)
+    if read is None and not stores_failed_conversion(raw):
+        inverse = codec.inverse_read(kind, samples)
+        if inverse is not None:
+            return inverse, None, True
+    return read, note, False
+
+
 @dataclass
 class Sweep:
     """One identifier's setProperty replies in one context, on both of its channels:
     slotted ``(value, recipe or None)`` rows, plus the unslotted ``raw`` rows of the
-    main channel whose ``update`` items the read inference feeds back."""
+    main channel whose ``update`` items the read inference feeds back, and an open
+    number's slotted replies to the type probes (``typed``, main channel only)."""
 
     main: list[tuple[Any, Any]] = field(default_factory=list)
     alt: list[tuple[Any, Any]] = field(default_factory=list)
     raw: list[tuple[Any, dict[str, Any] | None]] = field(default_factory=list)
     rejected: bool = False
+    typed: list[tuple[Any, Any]] = field(default_factory=list)
+
+
+def td_writable(prop: Mapping[str, Any]) -> bool:
+    """The thing description declares ``prop`` writable (``W`` in its ``access_mode``).
+
+    The handler's write is probed for every property, as the app writes a property
+    without checking its ``access_mode``. The declaration decides the role rule "app
+    control", the note of a write that is not proven, and whether a proven write must
+    read back: an undeclared one is written only when its write gives a read
+    (:func:`write_read`), getProperty returning the written value or, for an enum whose
+    write stores each value as its own parameter value, the inverse of the write.
+    """
+    return "W" in (prop.get("access_mode") or "")
 
 
 def contexts_of(product_code: str) -> dict[str, codec.Context]:
@@ -1177,19 +1206,21 @@ def sweep(
     contexts: dict[str, codec.Context],
     wire: codec.WireValues | None = None,
 ) -> dict[str, dict[str, Sweep]]:
-    """setProperty over every writable property's domain in every context, on both of
-    each context's channels: ``{context: {identifier: Sweep}}``.
+    """setProperty over every property's domain in every context, on both of each
+    context's channels, and over each open number's type probes
+    (:data:`codec.TYPE_PROBES`) on the main channel: ``{context: {identifier: Sweep}}``.
 
-    Each context and channel is its own driver job (a fresh handler sandbox): a handler
-    can keep state between requests, so one sweep must not see another's.
+    Each context and channel, and each context's type probes, is its own driver job (a
+    fresh handler sandbox): a handler can keep state between requests, so one sweep must
+    not see another's.
     """
     out: dict[str, dict[str, Sweep]] = {name: {} for name in contexts}
-    writable = [p for p in props if "W" in (p.get("access_mode") or "")]
+    numbers = [p["identifier"] for p in props if codec.kind_of(p) == "other"]
     for name, ctx in contexts.items():
         for alt, c in ((False, ctx), (True, codec.alt_channel(ctx))):
             requests: list[dict[str, Any]] = []
             index: list[tuple[str, Any]] = []
-            for prop in writable:
+            for prop in props:
                 _, values = codec.domain(prop)
                 for v in values:
                     requests.append(
@@ -1211,6 +1242,17 @@ def sweep(
                 (row.alt if alt else row.main).append((v, slotted))
                 if not alt:
                     row.raw.append((v, recipe))
+        device = ctx.device(product_code)
+        typed = [
+            {"kind": "set", "identifier": ident, "payload": text, "device": device}
+            for ident in numbers
+            for text in codec.TYPE_PROBES
+        ]
+        replies = run_driver(product_code, handler, typed, wire) if typed else []
+        for request, reply in zip(typed, replies, strict=True):
+            recipe = p2p(reply)
+            slotted = codec.slot(recipe, ctx) if recipe is not None else None
+            out[name][request["identifier"]].typed.append((request["payload"], slotted))
     return out
 
 
@@ -1560,6 +1602,28 @@ def empty_value_reads(
         _count(counts, "read:empty value")
 
 
+def written_params(
+    swept: Mapping[str, Mapping[str, Sweep]], written: Collection[str]
+) -> tuple[dict[int, Any], dict[int, list[str]]]:
+    """``(background, seen)`` of the swept writes of the identifiers ``written`` in every
+    context: each parameter they set with the first value set, and per parameter the
+    distinct text values set, in sweep order."""
+    background: dict[int, Any] = {}
+    seen: dict[int, list[str]] = {}
+    for rows in swept.values():
+        for ident, row in rows.items():
+            if ident not in written:
+                continue
+            for _, recipe in row.raw:
+                for p in _param_dump(recipe):
+                    background.setdefault(p["param_type"], p["param_value"])
+                    if isinstance(p["param_value"], str):
+                        found = seen.setdefault(p["param_type"], [])
+                        if p["param_value"] not in found:
+                            found.append(p["param_value"])
+    return background, seen
+
+
 def build_context(  # noqa: C901
     product_code: str,
     handler: Path,
@@ -1578,9 +1642,10 @@ def build_context(  # noqa: C901
     wire: codec.WireValues | None = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """The settings of one model in one context and its counters. ``background``: every
-    parameter the model's writes set in any context, with one value each; ``seen``: the
-    distinct values they set per parameter; ``located``: the parameter each property is
-    read from (:func:`locate_params`), for the settings without a write.
+    parameter the writes the model's file carries set in any context, with one value each;
+    ``seen``: the distinct values they set per parameter (both :func:`written_params`);
+    ``located``: the parameter each property is read from (:func:`locate_params`), for the
+    settings without a write.
 
     Raises CheckError when a codec does not reproduce a swept recipe or an unaccepted
     reference row of this context.
@@ -1627,38 +1692,45 @@ def build_context(  # noqa: C901
             "access": "ro",
             "read": None,
         }
-        if "W" in (prop.get("access_mode") or ""):
-            _count(counts, "writable")
-            row = swept[ident]
-            result = codec.infer_write(kind, row.main, row.alt, context.channel, alt.channel)
-            if result.note == "no handler write path" and row.rejected:
-                result.note = "handler rejects the probed values"
-            entry.update(copy.deepcopy(codec.codec_fields(result)))
-            for template in [entry.get("write"), *(entry.get("write_table") or {}).values()]:
-                for path, slot_name in slots.get(ident, {}).items() if template else ():
-                    _set_leaf(template, path, slot_name)
-            read, read_note = None, None
-            if result.access == "rw":
-                read, read_note = codec.infer_read(kind, reads.get(ident, []))
-                if read is None and not stores_failed_conversion(row.raw):
-                    read = codec.inverse_read(kind, reads.get(ident, []))
-                    if read is not None:
-                        inverted.add(ident)
-                        _count(counts, "read:inverse of the write")
-                        read_note = None
-                _count(counts, "read:codec" if read else "read:null")
-                if read is not None:
-                    _count(counts, "read:identity" if read["map"] is None else "read:map")
-                elif read_note:
-                    _count(counts, f"read:{read_note}")
-            entry["read"] = read
-            if read_note:
-                entry["note"] = f"{entry['note']}; {read_note}" if "note" in entry else read_note
-            if result.access == "rw":
-                _count(counts, f"rw:{result.form}")
-            else:
-                _count(counts, f"ro:{result.note}")
         settings[ident] = entry
+        row = swept[ident]
+        result = codec.infer_write(
+            kind, row.main, row.alt, context.channel, alt.channel, typed=row.typed
+        )
+        read, read_note, inverse = None, None, False
+        if result.access == "rw":
+            read, read_note, inverse = write_read(kind, row.raw, reads.get(ident, []))
+        if not td_writable(prop):
+            # Not declared writable: written only when the handler's write is proven and
+            # gives a read (getProperty or an enum's inverse); otherwise ro without a note,
+            # read as the handler fills it.
+            if read is None:
+                continue
+            _count(counts, "writable:undeclared")
+        else:
+            _count(counts, "writable")
+        if result.note == "no handler write path" and row.rejected:
+            result.note = "handler rejects the probed values"
+        entry.update(copy.deepcopy(codec.codec_fields(result)))
+        for template in [entry.get("write"), *(entry.get("write_table") or {}).values()]:
+            for path, slot_name in slots.get(ident, {}).items() if template else ():
+                _set_leaf(template, path, slot_name)
+        if result.access == "rw":
+            if inverse:
+                inverted.add(ident)
+                _count(counts, "read:inverse of the write")
+            _count(counts, "read:codec" if read else "read:null")
+            if read is not None:
+                _count(counts, "read:identity" if read["map"] is None else "read:map")
+            elif read_note:
+                _count(counts, f"read:{read_note}")
+        entry["read"] = read
+        if read_note:
+            entry["note"] = f"{entry['note']}; {read_note}" if "note" in entry else read_note
+        if result.access == "rw":
+            _count(counts, f"rw:{result.form}")
+        else:
+            _count(counts, f"ro:{result.note}")
     # A setting without a write reads as the handler fills it from the device's parameters.
     unwritten = {p["identifier"]: p for p in props if settings[p["identifier"]]["access"] == "ro"}
     for ident, read in located_reads(
@@ -1908,17 +1980,6 @@ def generate(
     wire = app_wire_values(props, switch_texts, joiner.screen_values(product_code, titles))
     contexts = contexts_of(product_code)
     swept = sweep(product_code, handler, props, contexts, wire)
-    background: dict[int, Any] = {}
-    seen: dict[int, list[str]] = {}
-    for rows in swept.values():
-        for row in rows.values():
-            for _, recipe in row.raw:
-                for p in _param_dump(recipe):
-                    background.setdefault(p["param_type"], p["param_value"])
-                    if isinstance(p["param_value"], str):
-                        found = seen.setdefault(p["param_type"], [])
-                        if p["param_value"] not in found:
-                            found.append(p["param_value"])
     rows = reference or []
     per_context: dict[str, dict[str, Any]] = {}
     references: dict[str, list[dict[str, Any]]] = {}
@@ -1928,28 +1989,47 @@ def generate(
         product_code, handler, contexts[BASE], [p["identifier"] for p in props], located_counts
     )
     kinds = {p["identifier"]: codec.kind_of(p) for p in props}
-    for name, ctx in contexts.items():
-        wanted = {BASE: "child", STANDALONE: "standalone"}.get(name)
-        references[name] = [r for r in rows if r["context"] == wanted]
-        settings, ctx_counts = build_context(
-            product_code,
-            handler,
-            td,
-            props,
-            context=ctx,
-            swept=swept[name],
-            app_labels=app_labels,
-            tree=tree,
-            titles=titles,
-            reference=references[name],
-            background=background,
-            seen=seen,
-            located=located,
-            wire=wire,
-        )
-        per_context[name] = settings
-        if name == BASE:
-            counts = ctx_counts
+    # The other parameters a read is retried with, and a template's parameter slots, come
+    # from the writes the file carries: every declared one, and the undeclared ones kept,
+    # which only a build decides. Rebuild until the kept writes are the ones used.
+    declared = {p["identifier"] for p in props if td_writable(p)}
+    written, tried = declared, [declared]
+    while True:
+        background, seen = written_params(swept, written)
+        for name, ctx in contexts.items():
+            wanted = {BASE: "child", STANDALONE: "standalone"}.get(name)
+            references[name] = [r for r in rows if r["context"] == wanted]
+            settings, ctx_counts = build_context(
+                product_code,
+                handler,
+                td,
+                props,
+                context=ctx,
+                swept=swept[name],
+                app_labels=app_labels,
+                tree=tree,
+                titles=titles,
+                reference=references[name],
+                background=background,
+                seen=seen,
+                located=located,
+                wire=wire,
+            )
+            per_context[name] = settings
+            if name == BASE:
+                counts = ctx_counts
+        kept = declared | {
+            ident
+            for settings in per_context.values()
+            for ident, entry in settings.items()
+            if entry["access"] == "rw"
+        }
+        if kept == written:
+            break
+        if kept in tried:
+            raise GeneratorError(f"{product_code}: the kept writes do not settle: {sorted(kept)}")
+        written = kept
+        tried.append(kept)
     for key, n in located_counts.items():
         _count(counts, key, n)
     drop = controls.variants_to_drop(list(per_context.values()), released)
@@ -1986,7 +2066,7 @@ def generate(
         _count(counts, key, n)
     for key, n in roles.assign(
         merged,
-        td_writable={p["identifier"] for p in props if "W" in (p.get("access_mode") or "")},
+        td_writable={p["identifier"] for p in props if td_writable(p)},
         app_read_only=set((titles or {}).get("read_only") or {}),
         shown=model_shown(shown or {}, tree),
         state_params=STATE_PARAM_INFO.keys(),
