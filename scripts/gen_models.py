@@ -37,7 +37,7 @@ replayed without Node. ``--no-answers`` asks Node for every job.
 
     gen_models.py [PN ...] [--check] [--cache DIR] [--out DIR] [--jobs N]
                   [--labels FILE] [--trees FILE] [--titles FILE] [--shown FILE]
-                  [--app-version V] [--released FILE] [--update-released REF]
+                  [--routing FILE] [--app-version V] [--released FILE] [--update-released REF]
                   [--answers DIR | --no-answers]
 """
 
@@ -72,9 +72,12 @@ from types import ModuleType
 from typing import Any, cast
 
 from eufy_home_security.devices.model_settings import (
+    ACCOUNT_SLOT,
     BATTERY_PROPERTY,
     SdStatusGroups,
     SdStatusSource,
+    decode_object,
+    members_read,
     object_slot,
 )
 from eufy_home_security.devices.param_info import STATE_PARAM_INFO
@@ -95,6 +98,7 @@ DEFAULT_LABELS = ROOT / ".work" / "tools" / "data" / "app_choice_labels.json"
 DEFAULT_TREES = ROOT / ".work" / "tools" / "data" / "settings_trees.json"
 DEFAULT_TITLES = ROOT / ".work" / "tools" / "data" / "app_setting_titles.json"
 DEFAULT_SHOWN = ROOT / ".work" / "tools" / "data" / "app_shown.json"
+DEFAULT_ROUTING = ROOT / ".work" / "tools" / "data" / "app_routing.json"
 DEFAULT_ANSWERS = ROOT / ".work" / "cache" / "gen_models_answers"  # the driver answer store
 REFERENCE = ROOT / "tests" / "fixtures" / "models_v1_reference.json"
 DEFAULT_APP_VERSION = "6.1.32"  # the app build the label and tree data come from
@@ -145,6 +149,7 @@ sections = _load("gen_models_sections")
 variants = _load("gen_models_variants")
 roles = _load("gen_models_roles")
 answers = _load("gen_models_answers")
+routing = _load("gen_models_routing")
 GeneratorError = codec.GeneratorError
 DRIVERS = node.DriverPool()  # one Node worker per generating thread
 # Replays stored driver replies; the command line sets its root (--answers).
@@ -1271,14 +1276,11 @@ def object_sweep(
     contexts: dict[str, codec.Context],
     objects: Mapping[str, Sequence[dict[str, Any]]],
 ) -> dict[str, ObjectRows]:
-    """setProperty of each writable property ``objects`` names with each object the app
-    writes for it, in every context on both of its channels (one driver job each)."""
+    """setProperty of each property ``objects`` names, whatever its ``access_mode``, with
+    each object the app writes for it, in every context on both of its channels (one driver
+    job each); :func:`apply_object_writes` decides which writes a file keeps."""
     out: dict[str, ObjectRows] = {name: {} for name in contexts}
-    idents = [
-        p["identifier"]
-        for p in props
-        if p["identifier"] in objects and "W" in (p.get("access_mode") or "")
-    ]
+    idents = [p["identifier"] for p in props if p["identifier"] in objects]
     if not idents:
         return out
     for name, ctx in contexts.items():
@@ -1296,7 +1298,7 @@ def object_sweep(
             replies = run_driver(product_code, handler, requests)
             for (ident, payload), reply in zip(index, replies, strict=True):
                 recipe = p2p(reply)
-                slotted = codec.slot(recipe, ctx) if recipe is not None else None
+                slotted = codec.slot(recipe, ctx, texts=True) if recipe is not None else None
                 rows = out[name].setdefault(ident, ([], []))
                 rows[1 if alt else 0].append((payload, slotted))
     return out
@@ -1308,11 +1310,17 @@ def object_reads(
     """The read of each object write that stores its value's base64 in a parameter, when
     the handler fills the property from that parameter: held at each written value's
     stored form, getProperty answers for the property every time, with as many distinct
-    answers as there are distinct values."""
+    answers as there are distinct values. A write that stores no base64 of its value gets
+    the read :func:`member_reads` finds."""
     asks: list[tuple[str, int]] = []
     requests: list[dict[str, Any]] = []
+    found: dict[str, dict[str, Any]] = {}
     for ident, fit in sorted(fits.items()):
-        if fit.write is None or fit.stored is None:
+        if fit.write is not None and fit.stored is None:
+            if (read := member_reads(product_code, handler, context, ident, fit)) is not None:
+                found[ident] = read
+            continue
+        if fit.write is None:
             continue
         where = Located(fit.stored, as_command=True)
         for value in fit.values:
@@ -1323,7 +1331,7 @@ def object_reads(
     answers: dict[str, list[Any]] = {}
     for (ident, _), reply in zip(asks, replies, strict=True):
         answers.setdefault(ident, []).append(_property_values(reply).get(ident, codec.MISSING))
-    out: dict[str, dict[str, Any]] = {}
+    out: dict[str, dict[str, Any]] = dict(found)
     for ident, got in answers.items():
         fit = fits[ident]
         if any(a is codec.MISSING or a is None for a in got):
@@ -1334,6 +1342,128 @@ def object_reads(
     return out
 
 
+MEMBER_PROBE = "member-probe"
+"""A member text no write stores: held in a stored JSON object to find a member it fills."""
+
+
+def _stored_params(
+    write: Mapping[str, Any], value: Any, context: codec.Context
+) -> dict[int, str] | None:
+    """``{parameter: text}`` a write stores for ``value`` (its ``update``/``extUpdates``),
+    or None when one is no text."""
+    recipe = codec.render(
+        {"access": "rw", "write": write},
+        value,
+        channel=context.channel,
+        device_sn=context.device_sn,
+        station_sn=context.station_sn,
+    )
+    out: dict[int, str] = {}
+    for item in codec.stored_items(recipe):
+        text = item.get("paramValue")
+        if not isinstance(text, str):
+            return None
+        out[item["cmd"]] = text
+    return out
+
+
+def member_reads(
+    product_code: str, handler: Path, context: codec.Context, ident: str, fit: Any
+) -> dict[str, Any] | None:
+    """The read of an object write that stores its members in several parameters, when the
+    handler fills the property from them: held at each written value's stored parameters,
+    getProperty answers an object whose every member is one parameter read as a switch or
+    one member of a parameter's JSON object (found by holding a probe text there), and
+    the library's member read (``read.members``) of the held parameters gives that answer
+    every time, distinct per value. Else None."""
+    held = [_stored_params(fit.write, v, context) for v in fit.values]
+    if not held or any(h is None or not h for h in held):
+        return None
+    blocks = cast(list[dict[int, str]], held)
+    asks = [_held_request(product_code, context, [ident], b, as_command=True) for b in blocks]
+    answers = [_member_answer(r, ident) for r in run_driver(product_code, handler, asks)]
+    if any(a is None for a in answers) or len({_canon(a) for a in answers}) != len(answers):
+        return None
+    first = cast(dict[str, Any], answers[0])
+    members: dict[str, dict[str, Any]] = {}
+    for name in first:
+        spec = _member_source(name, blocks, cast(list[dict[str, Any]], answers))
+        if spec is None:
+            spec = _probed_member(
+                product_code, handler, context, ident=ident, name=name, block=blocks[0]
+            )
+        if spec is None:
+            return None
+        members[name] = spec
+    specs = {n: (m["param"], m.get("member")) for n, m in members.items()}
+    for block, answer in zip(blocks, answers, strict=True):
+        if _canon(members_read(specs, block)) != _canon(answer):
+            return None
+    return {"param": next(iter(blocks[0])), "map": None, "members": members}
+
+
+def _member_answer(reply: Any, ident: str) -> dict[str, Any] | None:
+    """A getProperty answer as an object (a JSON object's text decoded), else None."""
+    got = _property_values(reply).get(ident)
+    if isinstance(got, str):
+        got = decode_object(got)
+    return got if isinstance(got, dict) and got else None
+
+
+def _member_source(
+    name: str, blocks: Sequence[Mapping[int, str]], answers: Sequence[Mapping[str, Any]]
+) -> dict[str, Any] | None:
+    """Where every answer's member ``name`` comes from in the held parameters: one read
+    as a switch, or the same-named member of one holding a JSON object."""
+    got = [_canon(a.get(name)) for a in answers]
+    for param in blocks[0]:
+        texts = [b.get(param) for b in blocks]
+        if any(t is None for t in texts):
+            continue
+        objects = [decode_object(cast(str, t)) for t in texts]
+        if all(o is not None and name in o for o in objects):
+            found = [_canon(cast(dict[str, Any], o)[name]) for o in objects]
+            spec: dict[str, Any] = {"param": param, "member": name}
+        elif all(o is None for o in objects) and len(set(got)) > 1:
+            found = [
+                _canon(members_read({name: (param, None)}, {param: cast(str, t)})[name])
+                for t in texts
+            ]
+            spec = {"param": param, "as": "flag"}
+        else:
+            continue
+        if found == got:
+            return spec
+    return None
+
+
+def _probed_member(
+    product_code: str,
+    handler: Path,
+    context: codec.Context,
+    *,
+    ident: str,
+    name: str,
+    block: Mapping[int, str],
+) -> dict[str, Any] | None:
+    """The stored JSON object whose member ``name`` the answer shows when it is held there
+    (the write never stores it)."""
+    for param, text in block.items():
+        stored = decode_object(text)
+        if stored is None or name in stored or not text.startswith("{"):
+            continue
+        probe = {**block, param: json.dumps({**stored, name: MEMBER_PROBE}, separators=(",", ":"))}
+        (reply,) = run_driver(
+            product_code,
+            handler,
+            [_held_request(product_code, context, [ident], probe, as_command=True)],
+        )
+        answer = _member_answer(reply, ident)
+        if answer is not None and answer.get(name) == MEMBER_PROBE:
+            return {"param": param, "member": name}
+    return None
+
+
 def apply_object_writes(
     product_code: str,
     handler: Path,
@@ -1342,11 +1472,14 @@ def apply_object_writes(
     *,
     context: codec.Context,
     counts: dict[str, int],
+    undeclared: Collection[str],
 ) -> None:
     """Turn each setting whose app objects the handler writes in a form an object write
     reproduces (``gen_models_codec.infer_object_write``) into an ``object`` setting with
     that write and its read (:func:`object_reads`); a setting whose app objects get recipes
-    no object form reproduces keeps its entry, its note naming why."""
+    no object form reproduces keeps its entry, its note naming why. A property the thing
+    description does not declare writable (``undeclared``, :func:`td_writable`) is turned
+    only when its write gives a read, and otherwise keeps its entry without a note."""
     alt = codec.alt_channel(context)
     fits = {
         ident: codec.infer_object_write(main, second, context.channel, alt.channel)
@@ -1356,6 +1489,9 @@ def apply_object_writes(
     reads = object_reads(product_code, handler, context, fits)
     for ident, fit in fits.items():
         entry = settings[ident]
+        read = reads.get(ident)
+        if ident in undeclared and read is None:
+            continue
         if fit.write is None:
             if fit.note is not None:
                 entry["note"] = f"{entry['note']}; {fit.note}" if entry.get("note") else fit.note
@@ -1363,7 +1499,6 @@ def apply_object_writes(
             continue
         for key in (*OBJECT_ENTRY_DROPPED, "write_table", "note"):
             entry.pop(key, None)
-        read = reads.get(ident)
         entry.update(kind="object", access="rw", write=fit.write, read=read, structured=True)
         _count(counts, "object:write")
         _count(counts, "object:read" if read is not None else "object:no read")
@@ -1613,6 +1748,173 @@ def view_reads(
         _count(counts, "read:per view")
 
 
+OWNER_PROBE = "0" * 39 + "1"
+"""The user id a setProperty message names when the generator asks which members of a
+handler's write take the app's account (:func:`owner_members`)."""
+
+
+def owner_members(
+    product_code: str,
+    handler: Path,
+    settings: dict[str, Any],
+    *,
+    props: Sequence[Mapping[str, Any]],
+    routes: Any,
+    screens: Mapping[str, Collection[str | None]],
+    context: codec.Context,
+    counts: dict[str, int],
+) -> None:
+    """Put the owner's id into each bare JSON-text frame write, whose body is the params as
+    the handler builds them: a member the handler fills from the user id the app's message
+    names becomes ``$account_id``, in the handler's member order. The other runs drive the
+    handler without a user id, so such a member is missing from their templates; the other
+    frame forms carry the account outside the body. A native screen's own form (``screens``,
+    from ``routing.apply``) is sent as the screen builds it and is left as it is."""
+    domains = {p["identifier"]: codec.domain(p)[1] for p in props}
+    asks: list[list[dict[str, Any]]] = []
+    requests: list[dict[str, Any]] = []
+    for ident, entry in settings.items():
+        templates = _json_text_templates(entry, routes, screens.get(ident, ()))
+        if not templates or not domains.get(ident):
+            continue
+        base = {
+            "kind": "set",
+            "identifier": ident,
+            "payload": domains[ident][0],
+            "device": context.device(product_code),
+        }
+        requests += [base, {**base, "user_id": OWNER_PROBE}]
+        asks.append(templates)
+    replies = run_driver(product_code, handler, requests) if requests else []
+    for n, templates in enumerate(asks):
+        without, with_owner = (p2p(r) or {} for r in replies[2 * n : 2 * n + 2])
+        plain, named = without.get("params"), with_owner.get("params")
+        if not isinstance(plain, dict) or not isinstance(named, dict):
+            continue
+        owner = [k for k, v in named.items() if v == OWNER_PROBE and plain.get(k) != OWNER_PROBE]
+        if not owner:
+            continue
+        for template in templates:
+            params = template["params"]
+            order = [*named, *(k for k in params if k not in named)]
+            template["params"] = {
+                k: ACCOUNT_SLOT if k in owner else params[k]
+                for k in order
+                if k in owner or k in params
+            }
+        _count(counts, "routing:owner id")
+
+
+def _json_text_templates(
+    entry: Mapping[str, Any], routes: Any, screen: Collection[str | None]
+) -> list[dict[str, Any]]:
+    """The write templates of a writable setting that go out as a bare JSON-text frame
+    with an object body, except those a native screen sends (``screen``: their
+    ``write_table`` keys, None for the ``write``)."""
+    if entry.get("access") != "rw":
+        return []
+    found = [(None, entry.get("write")), *(entry.get("write_table") or {}).items()]
+    return [
+        t
+        for key, t in found
+        if key not in screen
+        and isinstance(t, dict)
+        and "subCmd" not in t
+        and isinstance(t.get("params"), dict)
+        and isinstance(t.get("cmd"), int)
+        and t["cmd"] not in routing.WRAPPERS
+        and routes.forms.get(t["cmd"]) == "json_text"
+    ]
+
+
+SPAN_START = "startTime"
+"""The member a device stores beside a timed value's end epoch: its start epoch (verified
+on hardware for 1271 on a HomeBase 3)."""
+SPAN_EPOCHS = (codec.FIXED_CLOCK_MS // 1000, codec.FIXED_CLOCK_MS // 1000 + 86_399)
+"""Start epochs a stored span is probed at: a read that follows the span reads the same."""
+
+
+def span_reads(
+    product_code: str,
+    handler: Path,
+    settings: dict[str, Any],
+    context: codec.Context,
+    counts: dict[str, int],
+) -> None:
+    """Add a span read (``read.span``) to each enum whose write stores a one-member JSON
+    object ``{member: n}`` per value (base64) and whose handler reads a stored
+    ``{member: start + n, startTime: start}`` as that value at every probed start: the
+    device stores a timed value as its end and start epochs, and the app shows the
+    duration's choice."""
+    asks: list[tuple[str, Any, int]] = []
+    requests: list[dict[str, Any]] = []
+    found: dict[str, tuple[str, dict[str, Any]]] = {}
+    for ident, entry in settings.items():
+        spans = _stored_spans(entry)
+        if spans is None:
+            continue
+        member, by_value = spans
+        found[ident] = (member, by_value)
+        param = entry["read"]["param"]
+        for value, duration in by_value.items():
+            for start in SPAN_EPOCHS:
+                device = context.device(product_code)
+                stored = {member: start + duration, SPAN_START: start}
+                device["params"] = [{"param_type": param, "param_value": _b64_json(stored)}]
+                requests.append({"kind": "get", "cmds": [param], "device": device})
+                asks.append((ident, value, duration))
+    replies = run_driver(product_code, handler, requests) if requests else []
+    matched: dict[str, bool] = {}
+    for (ident, value, _), reply in zip(asks, replies, strict=True):
+        got = (p2p(reply) or {}).get(ident, codec.MISSING)
+        matched[ident] = matched.get(ident, True) and codec.decodes_to(got, value)
+    for ident, ok in matched.items():
+        if not ok:
+            continue
+        member, by_value = found[ident]
+        spans = {str(d): v for v, d in by_value.items()}
+        if len(spans) != len(by_value):
+            continue  # two values share a duration: a span cannot tell them apart
+        settings[ident]["read"]["span"] = {
+            "member": member,
+            "start": SPAN_START,
+            "map": dict(sorted(spans.items(), key=lambda kv: int(kv[0]))),
+        }
+        _count(counts, "read:span")
+
+
+def _stored_spans(entry: Mapping[str, Any]) -> tuple[str, dict[Any, int]] | None:
+    """``(member, value -> n)`` when an enum's write stores ``{member: n}`` (base64 JSON,
+    one int member, the same member for each such value; at least two values) in the
+    parameter it reads. A value stored in another form is no span and is left out."""
+    write, read = entry.get("write"), entry.get("read")
+    if entry.get("kind") != "enum" or not isinstance(write, dict) or not isinstance(read, dict):
+        return None
+    update = write.get("update")
+    stored = update.get("paramValue") if isinstance(update, dict) else None
+    if (
+        not isinstance(stored, dict)
+        or set(stored) != {"$map"}
+        or read.get("param") != update.get("cmd")
+    ):
+        return None
+    values = {codec.value_key(v): v for v in entry.get("values") or ()}
+    members: set[str] = set()
+    out: dict[Any, int] = {}
+    for key, text in stored["$map"].items():
+        found = decode_object(text) if isinstance(text, str) and not text.startswith("{") else None
+        if key not in values or found is None or len(found) != 1:
+            continue
+        ((member, n),) = found.items()
+        if isinstance(n, bool) or not isinstance(n, int):
+            continue
+        members.add(member)
+        out[values[key]] = n
+    if len(members) != 1 or len(out) < 2:
+        return None
+    return members.pop(), out
+
+
 def param_of(entry: Mapping[str, Any]) -> int:
     write = entry["write"]
     cmd = (write.get("update") or {}).get("cmd") or write.get("subCmd")
@@ -1754,13 +2056,15 @@ def build_context(  # noqa: C901
     located: Mapping[str, Located],
     wire: codec.WireValues | None = None,
     objects: ObjectRows | None = None,
+    routes: Any = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """The settings of one model in one context and its counters. ``background``: every
     parameter the writes the model's file carries set in any context, with one value each;
     ``seen``: the distinct values they set per parameter (both :func:`written_params`);
     ``located``: the parameter each property is read from (:func:`locate_params`), for the
     settings without a write; ``objects``: the handler's recipes for the objects the app
-    writes (:func:`object_sweep`).
+    writes (:func:`object_sweep`); ``routes`` the app's write routing (``gen_models_routing``;
+    None: the writes are kept as the handler makes them).
 
     Raises CheckError when a codec does not reproduce a swept recipe or an unaccepted
     reference row of this context.
@@ -1864,11 +2168,31 @@ def build_context(  # noqa: C901
     if reference:
         _count(counts, "reference_rows", len(reference))
     apply_object_writes(
-        product_code, handler, settings, objects or {}, context=context, counts=counts
+        product_code,
+        handler,
+        settings,
+        objects or {},
+        context=context,
+        counts=counts,
+        undeclared={p["identifier"] for p in props if not td_writable(p)},
     )
+    if routes is not None:
+        native = tree is not None and tree.get("settings_ui") != joiner.RN_SETTINGS
+        screens = routing.apply(settings, routes, native_screens=native, counts=counts)
+        owner_members(
+            product_code,
+            handler,
+            settings,
+            props=props,
+            routes=routes,
+            screens=screens,
+            context=context,
+            counts=counts,
+        )
     shape_controls(product_code, handler, settings, counts, context, wire=wire)
     joiner.hold_members(product_code, settings, titles, counts)
     view_reads(product_code, handler, settings, context, counts, inverted=inverted)
+    span_reads(product_code, handler, settings, context, counts)
     drop_absent_prior_updates(settings, counts)
     empty_value_reads(
         product_code, handler, settings, context, counts, wire=wire, skip=frozenset(inverted)
@@ -2054,6 +2378,7 @@ def generate(
     titles: dict[str, Any] | None = None,
     released: Collection[str] = (),
     shown: Mapping[str, str] | None = None,
+    routes: Any = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """The settings-file object of one model and its counters (the base context's).
 
@@ -2064,7 +2389,7 @@ def generate(
     ``released`` the model's keys in the released-keys manifest (never dropped);
     ``shown`` where the app's device cards, home page and settings pages read each
     identifier (:func:`shown_places`; the model's tree adds the ones its layout places
-    as pages).
+    as pages); ``routes`` the app's write routing (:func:`build_context`).
     Raises CheckError when a codec does not reproduce a swept recipe or an unaccepted
     reference row.
     """
@@ -2136,6 +2461,7 @@ def generate(
                 located=located,
                 wire=wire,
                 objects=objects[name],
+                routes=routes,
             )
             per_context[name] = settings
             if name == BASE:
@@ -2418,6 +2744,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trees", type=Path, default=DEFAULT_TREES)
     parser.add_argument("--titles", type=Path, default=DEFAULT_TITLES)
     parser.add_argument("--shown", type=Path, default=DEFAULT_SHOWN)
+    parser.add_argument("--routing", type=Path, default=DEFAULT_ROUTING)
     parser.add_argument("--app-version", default=DEFAULT_APP_VERSION)
     parser.add_argument(
         "--answers",
@@ -2454,9 +2781,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     cache: Path = args.cache
     missing = _missing_inputs(cache, args.product_codes)
-    inputs = (args.labels, args.trees, args.titles, args.shown)
+    inputs = (args.labels, args.trees, args.titles, args.shown, args.routing)
     if missing is None and not all(p.is_file() for p in inputs):
-        missing = "label, settings-tree, title or shown-property data not found"
+        missing = "label, settings-tree, title, shown-property or routing data not found"
     if missing is None and not args.released.is_file():
         missing = f"no released-keys manifest at {args.released}"
     if missing is not None:
@@ -2542,6 +2869,7 @@ class _Task:
     titles: dict[str, Any]
     released: Collection[str]
     shown: Mapping[str, str] | None = None
+    routes: Any = None
 
 
 type _Result = tuple[str, str | None, dict[str, int], str, answers.Stats]
@@ -2570,6 +2898,7 @@ def _build(task: _Task) -> _Result:
                 titles=task.titles,
                 released=task.released,
                 shown=task.shown,
+                routes=task.routes,
             )
         except node.NodeError as err:
             stop = err
@@ -2658,6 +2987,11 @@ def _generate_all(args: argparse.Namespace, cache: Path, out: Path, *, quiet: bo
     trees = _read_json(args.trees)
     titles = _read_json(args.titles)
     shown = shown_places(_read_json(args.shown))
+    try:
+        routes = routing.load(args.routing)
+    except GeneratorError as err:
+        print(f"gen_models: {err}", file=sys.stderr)
+        return 2
     released = _read_json(args.released)
     reference = load_reference()
     pns = args.product_codes or sorted(d.name for d in cache.iterdir() if d.is_dir())
@@ -2676,6 +3010,7 @@ def _generate_all(args: argparse.Namespace, cache: Path, out: Path, *, quiet: bo
             titles,
             released.get(pn, ()),
             shown,
+            routes,
         )
         for pn in pns
     ]

@@ -7,7 +7,7 @@ import functools
 import json
 import logging
 import operator
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -362,12 +362,423 @@ def test_sub_1350_path_carries_the_channel() -> None:
     assert wire.value is None
 
 
-def test_direct_path() -> None:
-    wire = _setting("T8170", "device_snooze_time").encode(5, ALONE)
-    assert wire.path is WritePath.DIRECT
-    assert wire.cmd == 1271
-    assert wire.params == {"snooze_time": 900}
-    assert wire.value is None
+def test_a_snooze_time_is_written_as_the_app_s_json_text_frame() -> None:
+    """1271 is a JSON-text frame of its own type: the body is the handler's params as compact
+    JSON, the owner's account id first."""
+    wire = _setting("T8170", "device_snooze_time").encode(0, ALONE)
+    assert wire.path is WritePath.JSON_FRAME
+    params = {"account_id": model_settings.ACCOUNT_SLOT, "snooze_time": 1800}
+    assert (wire.cmd, wire.params, wire.value) == (1271, params, None)
+    assert wire.account_members == ("account_id",)
+    text = b'{"account_id":"OWNER","snooze_time":1800}'
+    assert model_settings.json_frame_text(wire, "OWNER") == text
+
+
+SCHEDULE_ENTRY = {
+    "cross_day": "$v.cross_day:json", "enable": "$v.enable:json", "end_h": "$v.end_h:json",
+    "end_m": "$v.end_m:json", "interval": {"$or": ["$v.interval:json", 0]},
+    "start_h": "$v.start_h:json",
+    "start_m": "$v.start_m:json", "week": "$v.week:json",
+}  # fmt: skip
+
+
+def test_a_json_frame_fills_the_owner_id_where_the_template_names_it() -> None:
+    """The light schedule as the floodlight screen sends it: ``{account_id, schedules:
+    {loop}}``, the entries as given, ``once`` left out."""
+    template = {
+        "cmd": 1404,
+        "params": {
+            "account_id": "$account_id",
+            "schedules": {"loop": {"$each": ["$v.schedules.loop:json", SCHEDULE_ENTRY]}},
+        },
+        "update": {"needUpdate": True, "cmd": 1404, "paramValue": "$v:b64json"},
+    }
+    entry = {  # as the handler reports it: no interval
+        "start_h": 18, "start_m": 30, "end_h": 6, "end_m": 0, "cross_day": 1,
+        "enable": 1, "week": [{"day": 1}, {"day": 3}],
+    }  # fmt: skip
+    value = {"schedules": {"loop": [entry], "once": []}}
+    recipe = model_settings._render(
+        template, value, channel=0, device_sn="T0000ALONESN0001", station_sn="", params={}
+    )
+    wire = model_settings._classify(template, recipe)
+    assert wire.path is WritePath.JSON_FRAME
+    assert model_settings.json_frame_text(wire, "OWNER") == (
+        b'{"account_id":"OWNER","schedules":{"loop":[{"cross_day":1,"enable":1,"end_h":6,'
+        b'"end_m":0,"interval":0,"start_h":18,"start_m":30,"week":[{"day":1},{"day":3}]}]}}'
+    )
+    assert wire.params is not None
+    assert wire.params["account_id"] == "$account_id"  # filled only at send time
+    timed = {**entry, "interval": 30}
+    recipe = model_settings._render(
+        template, {"schedules": {"loop": [timed]}},
+        channel=0, device_sn="T0000ALONESN0001", station_sn="", params={},
+    )  # fmt: skip
+    assert recipe["params"]["schedules"]["loop"][0]["interval"] == 30
+    weekless = {k: v for k, v in entry.items() if k != "week"}
+    with pytest.raises(ValueError, match="no member 'week'"):
+        model_settings._render(
+            template, {"schedules": {"loop": [weekless]}},
+            channel=0, device_sn="T0000ALONESN0001", station_sn="", params={},
+        )  # fmt: skip
+    with pytest.raises(ValueError, match="not a list of objects"):
+        model_settings._render(
+            template, {"schedules": {"loop": [1]}},
+            channel=0, device_sn="T0000ALONESN0001", station_sn="", params={},
+        )  # fmt: skip
+
+
+def test_a_channel_value_command_goes_out_as_its_scalar() -> None:
+    """1013 (night vision) is the eight-byte channel + value frame: the scalar path."""
+    recipe = {"cmd": 1013, "params": {"value": 1, "channel": 3}}
+    wire = model_settings._classify(recipe, recipe)
+    assert (wire.path, wire.cmd, wire.value) == (WritePath.ECB, 1013, 1)
+
+
+def test_a_recipe_s_mvalue_overrides_the_command_s_field() -> None:
+    """As the app's request builder: ``mValue`` in the params replaces the value it read."""
+    recipe = {
+        "cmd": 1507,
+        "params": {"msgType": 10, "mValue": 3, "mValueStr": "", "mValueStrSub": " "},
+    }
+    wire = model_settings._classify(recipe, recipe)
+    assert (wire.path, wire.cmd, wire.value) == (WritePath.ECB, 1507, 3)
+    flagged = {"cmd": 1403, "params": {"switch": True, "mValue": "0"}}
+    assert model_settings._classify(flagged, flagged).value == 0
+
+
+DUSK_TO_DAWN = {
+    "cmd": 1414,
+    "params": {
+        "msgType": 16,
+        "mValue": "$v.enable:flag",
+        "mValueStr": {"$format": ['{"lat": "%s","lng": "%s"}', "$v.lat:str", "$v.lng:str"]},
+    },
+    "update": {
+        "needUpdate": True,
+        "cmd": 1414,
+        "paramValue": {"$format": ["%s", "$v.enable:flag"]},
+    },
+    "extUpdates": [
+        {
+            "cmd": 1415,
+            "paramValue": {
+                "$jsontext": {"sn": "$device_sn", "lat": "$v.lat:str", "lng": "$v.lng:str"}
+            },
+        }
+    ],
+}
+
+
+@pytest.mark.parametrize(
+    ("enable", "number"), [(1, 1), (True, 1), ("1", 1), ("true", 1), (0, 0), (False, 0), (2, 0)]
+)
+def test_dusk_to_dawn_is_a_string_frame_with_the_switch_as_its_number(
+    enable: object, number: int
+) -> None:
+    value = {"enable": enable, "lat": "59.437", "lng": 24.7536}
+    recipe = model_settings._render(
+        DUSK_TO_DAWN, value, channel=0, device_sn="T0000ALONESN0001", station_sn="", params={}
+    )
+    wire = model_settings._classify(DUSK_TO_DAWN, recipe)
+    assert wire.path is WritePath.STRING
+    assert (wire.cmd, wire.number) == (1414, number)
+    assert wire.text == '{"lat": "59.437","lng": "24.7536"}'
+    assert wire.updates == (
+        (1414, str(number)),
+        (1415, '{"sn":"T0000ALONESN0001","lat":"59.437","lng":"24.7536"}'),
+    )
+
+
+@pytest.mark.parametrize("value", [{"enable": 1, "lat": "1"}, {"lat": "1", "lng": "2"}])
+def test_dusk_to_dawn_needs_every_member_it_sends(value: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match="no member"):
+        model_settings._render(
+            DUSK_TO_DAWN, value, channel=0, device_sn="T0000ALONESN0001", station_sn="", params={}
+        )
+
+
+@pytest.mark.parametrize("cmd", [9258, 1350])
+def test_a_command_with_no_frame_form_is_not_sent(cmd: int) -> None:
+    """9258 has no frame form; a 1350 without its sub-command is no transfer."""
+    recipe = {"cmd": cmd, "params": {"interval": 60}}
+    with pytest.raises(ValueError, match=f"{cmd}"):
+        model_settings._classify(recipe, recipe)
+    assert model_settings._refusal(recipe) == f"no frame the eufy app sends for command {cmd}"
+
+
+@pytest.mark.parametrize(
+    ("write", "note"),
+    [
+        ({"cmd": 1414, "params": {"deviceName": "$v"}},
+         "string command 1414 needs its text in mValueStr"),
+        ({"cmd": 1271}, "JSON-text command 1271 has no object body to send"),
+        ({"cmd": 1246, "params": {"channel": "$channel"}},
+         "ECB command 1246: the body holds no value to send"),
+    ],
+)  # fmt: skip
+def test_a_body_its_frame_form_cannot_carry_is_not_writable(
+    write: dict[str, object], note: str
+) -> None:
+    """The writability note and the encode-time error come from one check."""
+    recipe = model_settings._render(
+        write, "1", channel=0, device_sn="T0000ALONESN0001", station_sn="", params={}
+    )
+    with pytest.raises(ValueError, match=note):
+        model_settings._classify(write, recipe)
+    entry = {"kind": "string", "access": "rw", "control": "text", "section": "picture",
+             "role": "setting", "read": None, "write": write}  # fmt: skip
+    setting = model_settings._build("T0000", "x", entry)
+    assert (setting.writable, setting.note) == (False, note)
+
+
+def test_a_time_zone_string_frame_takes_its_text_from_the_domain() -> None:
+    """A domain setting's string frame needs no ``mValueStr``: the domain renders the text."""
+    entry = {"kind": "string", "access": "rw", "control": "select", "section": "picture",
+             "role": "setting", "read": None, "domain": "timezone",
+             "write": {"cmd": 1215, "params": {"value": "$v"}}}  # fmt: skip
+    setting = model_settings._build("T0000", "x", entry)
+    assert setting.writable
+    assert setting.encode(setting.values[0], ALONE).path is WritePath.STRING
+
+
+def _span_setting(**span: object) -> Setting:
+    entry = {
+        "kind": "enum",
+        "values": [0, 1, -1],
+        "access": "ro",
+        "section": "picture",
+        "role": "setting",
+        "read": {
+            "param": 1271,
+            "map": {"": -1},
+            "span": {"member": "snooze_time", "start": "startTime",
+                     "map": {"0": -1, "1800": 0, "3600": 1}} | span,
+        },
+    }  # fmt: skip
+    return model_settings._build("T0000", "snooze", entry)
+
+
+def _b64(obj: object) -> str:
+    return base64.b64encode(json.dumps(obj).encode()).decode()
+
+
+@pytest.mark.parametrize(
+    ("stored", "value"),
+    [
+        (_b64({"snooze_time": 1795512559, "startTime": 1795510759}), 0),
+        (_b64({"startTime": 100, "snooze_time": 3700, "x": "y"}), 1),
+        (_b64({"snooze_time": 5000, "startTime": 5000}), -1),
+        ("", -1),  # the read map first
+        (_b64({"snooze_time": 1795512559}), None),
+        (_b64({"snooze_time": 1795512560, "startTime": 1795510759}), None),
+        (_b64({"snooze_time": "1795512559", "startTime": 1795510759}), None),
+        (_b64({"snooze_time": True, "startTime": False}), None),
+        (_b64({"snooze_time": True, "startTime": True}), None),
+        (_b64([1800]), None),
+        ("not base64", None),
+    ],
+)
+def test_a_span_read_takes_end_minus_start_as_its_duration(stored: str, value: int | None) -> None:
+    """A timed value stored as its end and start epochs reads as the choice of its
+    duration; anything else the read map does not hold reads unknown."""
+    assert _span_setting().decode(stored) == value
+
+
+def test_a_span_read_comes_after_the_read_map() -> None:
+    """A stored text the read map holds reads through the map, even when its span names
+    another value."""
+    stored = _b64({"snooze_time": 3700, "startTime": 100})
+    entry = {
+        "kind": "enum",
+        "values": [0, 1, -1],
+        "access": "ro",
+        "section": "picture",
+        "role": "setting",
+        "read": {
+            "param": 1271,
+            "map": {stored: 0},
+            "span": {"member": "snooze_time", "start": "startTime", "map": {"3600": 1}},
+        },
+    }
+    setting = model_settings._build("T0000", "snooze", entry)
+    assert setting.decode(stored) == 0
+    assert setting.decode(_b64({"snooze_time": 3600, "startTime": 0})) == 1
+
+
+def test_a_span_read_names_only_values_of_the_setting() -> None:
+    setting = _span_setting(map={"1800": 7})
+    assert setting.decode(_b64({"snooze_time": 1800, "startTime": 0})) is None
+
+
+@pytest.mark.parametrize(
+    "span",
+    [
+        {"member": 1},
+        {"start": None},
+        {"map": []},
+        {"map": {"x": 0}},
+        {"map": {"\u0663": 0}},  # a non-ASCII digit
+        {"extra": 1},
+    ],
+)
+def test_a_malformed_span_read_is_refused(span: dict[str, object]) -> None:
+    with pytest.raises((TypeError, ValueError), match="span"):
+        _span_setting(**span)
+
+
+class _EveryParam(dict[int, str]):
+    """Current parameters where every id reads ``"1"``."""
+
+    def get(self, key: object, default: object = None) -> str:
+        return "1"
+
+
+def _put(node: dict[str, object], path: list[str], leaf: object) -> None:
+    for member in path[:-1]:
+        node = cast(dict[str, object], node.setdefault(member, {}))
+    node.setdefault(path[-1], leaf)
+
+
+def _object_sample(template: object, sample: dict[str, object]) -> dict[str, object]:
+    """An object holding every member ``template``'s slots read: 1 at each leaf, one item
+    per ``$each`` list."""
+    if isinstance(template, Mapping):
+        if "$each" in template:
+            slot, item = template["$each"]
+            m = model_settings.OBJECT_SLOT.fullmatch(slot)
+            assert m is not None
+            _put(sample, m[1].split(".")[1:], [_object_sample(item, {})])
+            return sample
+        for v in template.values():
+            _object_sample(v, sample)
+    elif isinstance(template, list):
+        for v in template:
+            _object_sample(v, sample)
+    elif isinstance(template, str) and (m := model_settings.OBJECT_SLOT.fullmatch(template)):
+        if m[1]:
+            _put(sample, m[1].split(".")[1:], 1)
+    return sample
+
+
+def _sample(setting: Setting) -> object:
+    if setting.values:
+        return setting.values[0]
+    if setting.minimum is not None:
+        return setting.minimum
+    if setting.kind is SettingKind.BOOL:
+        return True
+    if setting.kind is SettingKind.OBJECT:
+        return _object_sample(setting._write, {}) or {"enable": 1}
+    return "1"
+
+
+@pytest.mark.parametrize("standalone", [False, True], ids=["child", "alone"])
+def test_every_bundled_writable_setting_encodes_a_sample_value(standalone: bool) -> None:
+    """Writability is the twin of the encode refusal: a setting that reads writable in a
+    context renders a value there."""
+    ctx = replace(ALONE if standalone else CHILD, params=_EveryParam())
+    failed = []
+    for code in bundled_codes():
+        for key, setting in settings_of(code, standalone=standalone).items():
+            if not setting.writable:
+                continue
+            try:
+                if setting.bit is not None:
+                    setting.encode_mask(setting.bit, ctx)
+                else:
+                    setting.encode(_sample(setting), ctx)
+            except ValueError as err:
+                failed.append(f"{code}:{key}: {err}")
+    assert failed == []
+
+
+FLOODLIGHTS = ("T8420", "T8420X", "T8422", "T8423", "T8424")
+
+
+@pytest.mark.parametrize(("member", "sent"), [(18, 18), ("18", 18), (18.0, 18), (True, None)])
+def test_a_light_schedule_entry_sends_its_members_as_integers(
+    member: object, sent: int | None
+) -> None:
+    """The screen's schedule entry holds integers only: a digit text or a whole float goes
+    out as its number, anything else is refused before sending."""
+    schedule = settings_of("T8420")["ambient_light_schedule_config"]
+    entry = {"start_h": member, "start_m": 0, "end_h": 6, "end_m": 0, "cross_day": 1,
+             "enable": 1, "week": [{"day": "3"}]}  # fmt: skip
+    value = {"schedules": {"loop": [entry]}}
+    if sent is None:
+        with pytest.raises(ValueError, match="start_h"):
+            schedule.encode(value, CHILD)
+        return
+    params = schedule.encode(value, CHILD).params
+    assert params is not None
+    (item,) = params["schedules"]["loop"]
+    assert (item["start_h"], item["week"]) == (sent, [{"day": 3}])
+
+
+@pytest.mark.parametrize("code", FLOODLIGHTS)
+def test_a_floodlight_s_schedule_and_dusk_to_dawn_go_out_as_its_light_screen_sends_them(
+    code: str,
+) -> None:
+    """The bundled writes: the schedule as a JSON-text frame with the owner id and the
+    entries in the screen's member order, no once list; dusk to dawn as a string frame
+    whose number is the switch; its read assembled from 1414 and 1415."""
+    settings = settings_of(code)
+    schedule = settings["ambient_light_schedule_config"]
+    entry = {"start_h": 18, "start_m": 30, "end_h": 6, "end_m": 0, "cross_day": 1,
+             "enable": 1, "week": [{"day": 1}]}  # fmt: skip
+    wire = schedule.encode({"schedules": {"loop": [entry], "once": []}}, CHILD)
+    assert (wire.path, wire.cmd) == (WritePath.JSON_FRAME, 1404)
+    assert model_settings.json_frame_text(wire, "OWNER") == (
+        b'{"account_id":"OWNER","schedules":{"loop":[{"cross_day":1,"enable":1,"end_h":6,'
+        b'"end_m":0,"interval":0,"start_h":18,"start_m":30,"week":[{"day":1}]}]}}'
+    )
+    dusk = settings["ambient_light_schedule_sunset_to_sunrise"]
+    wire = dusk.encode({"enable": 1, "lat": "59.437", "lng": "24.7536"}, CHILD)
+    assert (wire.path, wire.cmd, wire.number) == (WritePath.STRING, 1414, 1)
+    assert wire.text == '{"lat": "59.437","lng": "24.7536"}'
+    block = dict(wire.updates)
+    assert block[1414] == "1"
+    assert dusk.decode(block[1414], block) == {
+        "enable": 1, "lat": "59.437", "lng": "24.7536", "sun_rise": "", "sun_set": ""
+    }  # fmt: skip
+
+
+def test_an_object_read_assembles_its_members_from_several_parameters(data_root: Path) -> None:
+    read = {
+        "param": 1414,
+        "map": None,
+        "members": {
+            "enable": {"param": 1414, "as": "flag"},
+            "lat": {"param": 1415, "member": "lat"},
+            "sun_set": {"param": 1415, "member": "sun_set"},
+        },
+    }
+    entry = {**GOOD_ENTRY, "kind": "object", "structured": True, "read": read}
+    _write_model(data_root, {"dusk": entry})
+    setting = settings_of("T0001")["dusk"]
+    block = {1414: "1", 1415: '{"sn":"T0000ALONESN0001","lat":"1.5","lng":"2.5"}'}
+    assert setting.decode("1", block) == {"enable": 1, "lat": "1.5", "sun_set": ""}
+    assert setting.decode("true", {1415: "not json"}) == {"enable": 1, "lat": "", "sun_set": ""}
+    assert setting.decode("0", None) == {"enable": 0, "lat": "", "sun_set": ""}
+    assert setting.decode(None, block) is None
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        {"enable": {"param": 1414, "as": "int"}},
+        {"lat": {"param": "1415", "member": "lat"}},
+        {"lat": {"param": 1415}},
+        [],
+    ],
+)
+def test_a_malformed_member_read_is_refused(data_root: Path, members: object) -> None:
+    read = {"param": 1414, "map": None, "members": members}
+    entry = {**GOOD_ENTRY, "kind": "object", "structured": True, "read": read}
+    _write_model(data_root, {"dusk": entry})
+    with pytest.raises(ModelDataError):
+        settings_of("T0001")
 
 
 def test_a_time_zone_is_written_as_the_app_s_string_frame() -> None:
@@ -396,8 +807,9 @@ def test_ecb_path_does_not_depend_on_the_caller_type(value: object) -> None:
     assert (wire.cmd, wire.value) == (1253, 1)
 
 
-def test_ecb_command_with_a_non_numeric_value_is_refused(data_root: Path) -> None:
-    """An open-kind setting on an ECB command takes only an integer value."""
+@pytest.mark.parametrize("value", ["abc", "\u0663", "--3"])
+def test_ecb_command_with_a_non_numeric_value_is_refused(data_root: Path, value: str) -> None:
+    """An open-kind setting on an ECB command takes only an integer value (ASCII digits)."""
     write = {
         "cmd": 1253,
         "params": {"timeSystem": "$v"},
@@ -406,7 +818,7 @@ def test_ecb_command_with_a_non_numeric_value_is_refused(data_root: Path) -> Non
     entry = {**GOOD_ENTRY, "access": "rw", "kind": "other", "role": "setting", "write": write}
     _write_model(data_root, {"time_format_set": entry})
     with pytest.raises(ValueError, match="1253"):
-        settings_of("T0001")["time_format_set"].encode("abc", ALONE)
+        settings_of("T0001")["time_format_set"].encode(value, ALONE)
 
 
 def test_ecb_value_repeated_under_two_names_goes_ecb() -> None:
@@ -485,20 +897,24 @@ def test_the_command_s_field_wins_over_a_differing_field(open_: object, sent: in
 
 
 @pytest.mark.parametrize(
-    ("cmd", "body", "path", "value"),
+    ("cmd", "body", "value"),
     [
-        (1230, {"value": 7}, WritePath.ECB, 7),  # the command's field (volume) is absent
-        (1230, {"value": 7, "mode": 2}, WritePath.DIRECT, None),
-        (1017, {"a": True, "b": 1}, WritePath.ECB, 1),  # an ECB command with no known field
-        (1017, {"a": 4, "b": 5}, WritePath.DIRECT, None),
+        (1230, {"value": 7}, 7),  # the command's field (volume) is absent
+        (1230, {"value": 7, "mode": 2}, None),
+        (1017, {"a": True, "b": 1}, 1),  # an ECB command with no known field
+        (1017, {"a": 4, "b": 5}, None),
     ],
 )
 def test_a_body_without_the_command_s_field_must_hold_one_value(
-    cmd: int, body: dict[str, object], path: WritePath, value: int | None
+    cmd: int, body: dict[str, object], value: int | None
 ) -> None:
     recipe = {"cmd": cmd, "params": body}
+    if value is None:
+        with pytest.raises(ValueError, match=f"{cmd}"):
+            model_settings._classify(recipe, recipe)
+        return
     wire = model_settings._classify(recipe, recipe)
-    assert (wire.path, wire.value) == (path, value)
+    assert (wire.path, wire.value) == (WritePath.ECB, value)
 
 
 def test_bool_ecb_value_is_zero_or_one() -> None:
@@ -905,7 +1321,8 @@ def test_storage_types_carry_the_apps_two_choices_on_every_model() -> None:
 
 def test_app_domains_fill_settings_the_td_leaves_open() -> None:
     """Ring volume, response delay, time format and recording type get the app's domain;
-    the T8110 family's light schedule is a structured value."""
+    the T8110 family's light schedule is a structured value, read-only: the eufy app sends
+    nothing for its write."""
     volume = settings_of("T8220")["device_chime_hb_ring_volume"]
     assert (volume.kind, volume.minimum, volume.maximum) == (SettingKind.RANGE, 1, 26)
     delay = settings_of("T8217")["device_response_timeout_delay_time"]
@@ -916,7 +1333,8 @@ def test_app_domains_fill_settings_the_td_leaves_open() -> None:
     assert dict(recording.labels) == {2: "Event-based", 3: "Continuous"}
     schedule = settings_of("T8110")["spotlight_schedule_config"]
     assert schedule.structured
-    assert schedule.writable
+    assert not schedule.writable
+    assert schedule.note == "the eufy app sends nothing for this write"
 
 
 def test_the_recording_type_reads_any_other_value_as_continuous() -> None:
@@ -1476,6 +1894,38 @@ def test_an_object_member_slot_renders_that_member() -> None:
         model_settings.object_slot("$v:json", "text")
     with pytest.raises(ValueError, match="unknown placeholder"):
         model_settings.object_slot("$v:yaml", value)
+
+
+@pytest.mark.parametrize(
+    ("slot", "member", "rendered"),
+    [
+        ("$v.x:int", 18, 18),
+        ("$v.x:int", "18", 18),
+        ("$v.x:int", "-3", -3),
+        ("$v.x:int", 18.0, 18),
+        ("$v.x:int", -2, -2),
+        ("$v.x:str", True, "true"),
+        ("$v.x:str", {"a": 1}, ValueError),
+        ("$v.x:flag", float("nan"), 0),
+        ("$v.x:flag", float("inf"), 0),
+        ("$v.x:int", True, ValueError),
+        ("$v.x:int", 1.5, ValueError),
+        ("$v.x:int", "x", ValueError),
+        ("$v.x:int", "\u0663", ValueError),  # a non-ASCII digit
+        ("$v.x:int", "--3", ValueError),
+        ("$v.x:int", "3x", ValueError),
+        ("$v.x:int", [1], ValueError),
+        ("$v.x:int", float("nan"), ValueError),
+    ],
+)
+def test_a_scalar_member_slot_renders_its_form(slot: str, member: object, rendered: object) -> None:
+    """``int`` takes a whole number (or its digit text) and nothing else; ``str`` spells a
+    bool as its JSON text; a non-finite number is no switch."""
+    if rendered is ValueError:
+        with pytest.raises(ValueError, match=r"\$v\.x"):
+            model_settings.object_slot(slot, {"x": member})
+    else:
+        assert model_settings.object_slot(slot, {"x": member}) == rendered
 
 
 def test_an_object_slot_renders_a_copy() -> None:

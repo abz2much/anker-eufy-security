@@ -75,6 +75,12 @@ The rules:
 - A hexdump stars out serials, DIDs (struct and text form), 40-hex account ids and the
   values of clear JSON members under an identifying key in place, so its offsets stay
   valid. The rest is encrypted traffic or protocol bytes.
+- A settings write in a frame of its own type logs its body masked the same way: the
+  string frame (`tx string cmd 1414 ch0 number 1: {"lat": "******", "lng": "*******"}`,
+  a floodlight's dusk-to-dawn location, one star per character) and the JSON-text frame
+  (`tx JSON frame 1271 ch1 (76 bytes): {"account_id": "***4567", "snooze_time": 1800}`).
+  The wire logger's frame line of a body that is no JSON object (the string frame's 261
+  bytes, coordinates and owner id included) is a hexdump, masked as above.
 - Parameter values that identify the house (device and station names, the paired
   serial list, the LAN address) are redacted in the parameter lines (below); a value
   holding a JSON object, as text or base64, is shown with its identifying members masked.
