@@ -1,10 +1,11 @@
 """Decode an eufy FCM data message into a :class:`SecurityEvent`.
 
-A message is a flat string map (``app_data``). The event itself is the ``payload``
-field: base64 (either alphabet, padding optional) of NUL-terminated JSON, not
-encrypted. Older firmware uses single-letter keys inside it, newer firmware the
-long names, and a single payload has been seen mixing both — so the short keys are
-mapped onto the long ones rather than choosing a dialect.
+A message is a flat string map (``app_data``). The event itself is the body in a
+non-empty ``doorbell`` field (a video doorbell's push), else in ``payload``, as the
+eufy app reads it: JSON text, or base64 (either alphabet, padding optional) of
+NUL-terminated JSON, not encrypted. Older firmware uses single-letter keys inside it,
+newer firmware the long names, and a single payload has been seen mixing both — so
+the short keys are mapped onto the long ones rather than choosing a dialect.
 
 Two outer fields decide what is lifted at all:
 
@@ -16,6 +17,8 @@ Two outer fields decide what is lifted at all:
   payload has a different, undocumented shape. Those decode *raw-only*: nothing
   but ``dedupe_key`` is lifted, the message stays in ``raw``. Below it, the outer
   ``type`` is never an alarm cause: ``alarm_type`` comes from the inner payload.
+  A message with a ``doorbell`` body is a video doorbell's push (device type 5)
+  whatever its ``type``, never a server push.
 
 The inner payload is the same object the station pushes over P2P, so both
 decoders lift it through one :class:`~..events.PushFieldReader`.
@@ -25,7 +28,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import json
 import math
 from collections.abc import Callable, Mapping
 from typing import Any, Final
@@ -37,8 +39,10 @@ from ..events import (
     SecurityEvent,
     coerce_int,
     coerce_str,
+    is_event_time_ms,
     wall_ms,
 )
+from ..p2p._json import parse_json
 
 # Short key -> long name. The long names are the app's own field names (its toString
 # prints them), not obfuscated ones.
@@ -57,6 +61,9 @@ SHORT_KEYS: Final[Mapping[str, str]] = {
     "j": "sense_id",
 }
 
+#: Outer fields that carry the event body, in the order they are read.
+BODY_FIELDS: Final = ("doorbell", "payload")
+
 #: Outer ``type`` at or above this is an account-level server push (raw-only).
 SERVER_PUSH_MIN_TYPE: Final = 10100
 
@@ -68,18 +75,36 @@ SECURITY_APP_TAB: Final = "eufy_security"
 _MS_THRESHOLD: Final = 10_000_000_000
 
 
+def body_field(data: Mapping[str, Any]) -> str | None:
+    """The outer field the event body is read from: the first of :data:`BODY_FIELDS`
+    holding a non-empty string; None when neither does."""
+    for name in BODY_FIELDS:
+        value = data.get(name)
+        if isinstance(value, str) and value:
+            return name
+    return None
+
+
 def decode_payload(value: object) -> dict[str, Any]:
-    """Decode the ``payload`` field to a dict with short keys expanded; {} if it is not one."""
+    """Decode an event body to a dict with short keys expanded; {} if it is not one.
+
+    A body whose text starts with ``{`` is JSON, anything else base64 of
+    NUL-terminated JSON. The JSON is parsed strictly, its nesting bounded.
+    """
     if not isinstance(value, str) or not value.strip():
         return {}
-    text = value.strip().replace("_", "/").replace("-", "+")
+    text = value.strip()
+    if text.startswith("{"):
+        body = text
+    else:
+        text = text.replace("_", "/").replace("-", "+")
+        try:
+            raw = base64.b64decode(text + "=" * (-len(text) % 4), validate=True)
+        except (binascii.Error, ValueError):
+            return {}
+        body = raw.split(b"\x00", 1)[0].decode("utf-8", "replace")
     try:
-        raw = base64.b64decode(text + "=" * (-len(text) % 4), validate=True)
-    except (binascii.Error, ValueError):
-        return {}
-    body = raw.split(b"\x00", 1)[0].decode("utf-8", "replace")
-    try:
-        parsed = json.loads(body)
+        parsed = parse_json(body)
     except ValueError:
         return {}
     if not isinstance(parsed, dict):
@@ -111,6 +136,15 @@ def _ms(value: object) -> int | None:
     return int(num * 1000) if num < _MS_THRESHOLD else int(num)
 
 
+def _pic_url(value: object) -> str | None:
+    """The picture URL of a ``pic_url`` field, read as a comma-separated list: its first
+    non-blank item."""
+    text = coerce_str(value)
+    if text is None:
+        return None
+    return next((url for item in text.split(",") if (url := coerce_str(item))), None)
+
+
 def is_security_push(data: Mapping[str, Any]) -> bool:
     """False for a message addressed to another eufy app (``app_tab``)."""
     tab = data.get("app_tab")
@@ -127,29 +161,33 @@ def decode_push(data: Mapping[str, Any], *, now_ms: Callable[[], int] = wall_ms)
     ``push_id`` is the outer ``span_id``. The event time is the inner payload's
     ``trigger_time``/``create_time`` (ms) when it has one — the time the P2P copy
     carries, where the outer ``event_time`` is about 3 s later — else the outer (or
-    short-key ``t``) time, converted to ms before it is validated (FCM times are
-    seconds). Everything else stays in
-    ``raw`` (the message as received; :func:`decode_payload` re-derives the inner
+    inner, short key ``t``) ``event_time``, converted to ms before it is validated (more
+    than 10 digits is ms, else seconds). An inner time outside the plausible ms range (a
+    seconds ``create_time``) yields to that ``event_time`` when there is one. The inner
+    object is the body of :func:`body_field`. Everything else stays
+    in ``raw`` (the message as received; :func:`decode_payload` re-derives the inner
     object). A server push (``type`` ≥ :data:`SERVER_PUSH_MIN_TYPE`) lifts only
-    ``push_id``.
+    ``push_id``; a push with a ``doorbell`` body is never one.
     """
     try:
         push_id = coerce_str(_first(data.get("span_id")))
+        field = body_field(data)
         device_type = coerce_int(data.get("type"))
-        if device_type is not None and device_type >= SERVER_PUSH_MIN_TYPE:
+        # A doorbell body makes the push a video doorbell's (device type 5), whatever its type.
+        if field != "doorbell" and device_type is not None and device_type >= SERVER_PUSH_MIN_TYPE:
             return SecurityEvent(source=EventSource.CLOUD, push_id=push_id, raw=data)
-        inner = decode_payload(data.get("payload"))
+        inner = decode_payload(data[field]) if field is not None else {}
         reader = PushFieldReader(EventSource.CLOUD, now_ms=now_ms)
         common = reader.common(inner)
         for name in ("channel", "msg_type", "event_type"):
             if common[name] is None:
                 common[name] = coerce_int(data.get(name))
-        inner_ms = reader.payload_time(inner)
-        event_time_ms = reader.event_time(
-            inner_ms
-            if inner_ms is not None
-            else _ms(_first(data.get("event_time"), inner.get("event_time")))
-        )
+        time_ms = reader.payload_time(inner)
+        event_ms = _ms(_first(data.get("event_time"), inner.get("event_time")))
+        # An inner time that is no epoch in ms (a seconds create_time) yields to event_time.
+        if time_ms is None or (event_ms is not None and not is_event_time_ms(time_ms)):
+            time_ms = event_ms
+        event_time_ms = reader.event_time(time_ms)
         guard_mode = reader.guard_mode(inner)
         video_path = reader.path("video_path", inner.get("file_path"), RECORDING_SUFFIX)
         return SecurityEvent(
@@ -158,7 +196,7 @@ def decode_push(data: Mapping[str, Any], *, now_ms: Callable[[], int] = wall_ms)
             device_sn=coerce_str(_first(data.get("device_sn"), inner.get("device_sn"))),
             event_time_ms=event_time_ms,
             guard_mode=guard_mode,
-            pic_url=coerce_str(inner.get("pic_url")),
+            pic_url=_pic_url(inner.get("pic_url")),
             video_path=video_path,
             push_id=coerce_str(_first(push_id, inner.get("span_id"))),
             rejected_fields=frozenset(reader.rejected),

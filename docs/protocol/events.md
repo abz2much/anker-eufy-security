@@ -72,7 +72,7 @@ The inner object is the same object the backend relays over FCM (long-key form):
 
 | field | use |
 |---|---|
-| `trigger_time` / `create_time` | **epoch milliseconds**. Use `trigger_time` as the event time, not arrival time. Both decoders take `SecurityEvent.event_time_ms` from them (`trigger_time`, else `create_time`). |
+| `trigger_time` / `create_time` | **epoch milliseconds**. Use `trigger_time` as the event time, not arrival time. Both decoders take `SecurityEvent.event_time_ms` from them (`trigger_time`, else `create_time`; for a value outside the millisecond range the cloud decoder takes `event_time`, see *Which time* under [De-duplication across channels](#de-duplication-across-channels)). |
 | `unique_id` | a per-occurrence id, identical on the P2P and the FCM copy: `SecurityEvent.unique_id` (printable ASCII, at most 64 characters) and the de-duplication key |
 | `record_id` | the occurrence's event-database row (`SecurityEvent.record_id`; `0` = none): binds the attached records |
 | `device_sn`, `name`, `channel` | the camera. Trust these top-level fields for the event itself. |
@@ -184,6 +184,9 @@ camera, the face first as the eufy app does **[app]**:
 | `FACE` | a `msg_type` 1 push's face id: `fetch_id` (`i`) other than `3106`/`3107`, read as hex (`SecurityEvent.face_id`) | the cloud's face record ([cloud.md](cloud.md#face-records)), then its `face_url`: a small crop of the face |
 | `PIC_URL` | `pic_url`, https | a GET of the URL (the app's large notification picture) |
 | `PIC_URL` | `pic_url`, a station path (`/zx/….jpg`) | a still fetch on the station's session ([media.md](media.md#stills-1308-verified)); only for a station served locally |
+
+A cloud push's `pic_url` is read as a comma-separated list of pictures **[app]**;
+`SecurityEvent.pic_url` is its first non-blank item.
 
 `EufySecurity.async_push_image(event, source=None)` returns a `PushImage` (`data`,
 `content_type`: JPEG, PNG or WebP, `face_id` of a face image). Without `source` it tries
@@ -571,14 +574,15 @@ The app uses FCM as its only push transport **[app]**. A headless client registe
 
 | outer key | meaning |
 |---|---|
-| `payload` | base64 (URL-safe or standard, padding optional) of NUL-terminated JSON, **not encrypted** |
+| `payload` | the event body: base64 (URL-safe or standard, padding optional) of NUL-terminated JSON, **not encrypted**; text starting with `{` is read as JSON itself **[app]**. Parsed strictly with bounded nesting; a body that does not decode lifts no event field |
+| `doorbell` | a video doorbell's event body **[app]**: when non-empty it is read instead of `payload`, in the same two encodings. Its fields are strings (`"event_type": "3103"`), read like the payload's |
 | `span_id` | **redelivery key**, lifted as `SecurityEvent.push_id`. The backend redelivers on reconnect and re-registration. The app keeps a 1000-entry ring; the listener keeps its own. It never matches the P2P copy of the same event: see [De-duplication across channels](#de-duplication-across-channels). |
 | `app_tab` | `eufy_security` (`eufy_home` = robot vacuums on the same channel). The listener drops any other value; a message without `app_tab` is kept. |
-| `type` | **device** type, not event type. ≥ 10100 = account-level server push (device removed, invitation, alarm notify). These decode raw-only: no fields are lifted. |
+| `type` | **device** type, not event type. ≥ 10100 = account-level server push (device removed, invitation, alarm notify). These decode raw-only: no fields are lifted. A message with a `doorbell` body is a video doorbell's push (device type 5) whatever its `type`, never a server push **[app]**. |
 | `event_type` | detection, same 31xx enum as local |
 | `station_sn`, `device_sn` | |
-| `event_time`, `push_time`, `server_receive_time` | epoch, **seconds or milliseconds**: multiply by 1000 when < 10¹⁰. Every captured `event_time` was seconds (10 digits). The time checks above run after this conversion. |
-| `message_id`, `trace_id`, `push_type`, `event_level`, `title`, `content`, `doorbell`, `origin`, `push_control` | metadata and pre-rendered text |
+| `event_time`, `push_time`, `server_receive_time` | epoch, **seconds or milliseconds**: multiply by 1000 when < 10¹⁰ (10 digits or fewer). Every captured `event_time` was seconds (10 digits). The time checks above run after this conversion. |
+| `message_id`, `trace_id`, `push_type`, `event_level`, `title`, `content`, `origin`, `push_control` | metadata and pre-rendered text |
 
 **Inner payload.** Newer firmware uses the long names of the local payload. Older
 firmware uses single letters, and **one payload has been seen mixing both**, so map
@@ -597,7 +601,8 @@ short keys onto long ones instead of choosing a dialect:
 most 64 characters); anything else is listed in `rejected_fields`. The push listener's
 debug line (`push event: …`) names the kind and whether the push carries a face id (by its
 length only), a person name, a `pic_url` (`https`, `station` or `other`) and a
-`session_id`, with the `push_count`.
+`session_id`, with the `push_count` and the outer field the body was read from
+(`body doorbell`, `body payload`, or `body none` without either).
 
 **Redelivery.** Because the token is re-registered on every start, old messages
 come back after a restart. The listener persists its dedupe ring (span ids with
@@ -649,7 +654,10 @@ byte-identical and carries
 `create_time`/`trigger_time` in ms plus a per-event `unique_id`, `record_id` and
 `session_id`. The cloud decoder therefore takes `event_time_ms` from the inner
 `trigger_time`/`create_time` when present, and the outer `event_time` only otherwise
-(arming and alarm pushes carry no inner time).
+(arming and alarm pushes carry no inner time). An inner time outside the plausible
+millisecond range (a `doorbell` body's `create_time` has no declared unit) yields to the
+outer or inner `event_time` when the push has one; that one is seconds or milliseconds
+by its length (more than 10 digits = ms) **[app]**.
 
 **Attached records.** A copy's `thumb_path`/`crop_path` come only from records bound by
 `record_id` ([Binding the attached records](#binding-the-attached-records)).
