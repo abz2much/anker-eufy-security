@@ -29,12 +29,14 @@ __all__ = [
     "STATUS_NOTE",
     "GeneratorError",
     "apply_domains",
+    "check_screen_switches",
     "finish_domains",
     "hold_members",
     "join",
     "mark_structured",
     "normalise_unit",
     "object_writes",
+    "screen_switches",
     "screen_values",
     "source_block",
     "switches",
@@ -368,6 +370,48 @@ def switches(pn: str, titles: Mapping[str, Any] | None) -> dict[str, dict[bool, 
             raise GeneratorError(f"{pn}: switch {ident} is listed with texts and as a bool")
         out[ident] = {True: True, False: False}
     return out
+
+
+# Write type of an app switch -> the type of the two values it hands the handler.
+_SWITCH_VALUE_TYPES: dict[str, type] = {"Int": int, "Bool": bool, "String": str}
+
+
+def screen_switches(pn: str, titles: Mapping[str, Any] | None) -> dict[str, dict[bool, Any]]:
+    """``{identifier: {state: value}}``: the properties an app screen writes from an on/off
+    switch, with the value the handler gets for on (True) and off (False).
+
+    From the title file's ``switch_writes`` (``{identifier: {"type": "Int" | "Bool" |
+    "String", "on": value, "off": value, "sources": [text, ...]}}``, extracted from the
+    app's screens); raises GeneratorError when an entry has no source, an unknown type, or
+    two values that are equal or not of its type.
+    """
+    rules = (titles or {}).get("switch_writes") or {}
+    if not isinstance(rules, Mapping):
+        raise GeneratorError(f"{pn}: screen switches need a mapping of identifier to rule")
+    out: dict[str, dict[bool, Any]] = {}
+    for ident, rule in rules.items():
+        sources = rule.get("sources") if isinstance(rule, Mapping) else None
+        if not isinstance(sources, list) or not sources:
+            raise GeneratorError(f"{pn}: screen switch {ident} needs its sources")
+        want = _SWITCH_VALUE_TYPES.get(rule.get("type"))
+        on, off = rule.get("on"), rule.get("off")
+        if want is None or type(on) is not want or type(off) is not want or on == off:
+            raise GeneratorError(f"{pn}: screen switch {ident} needs two values of its type")
+        out[ident] = {True: on, False: off}
+    return out
+
+
+def check_screen_switches(pn: str, td: Mapping[str, Any], titles: Mapping[str, Any] | None) -> None:
+    """Raise GeneratorError when a property of the product's ``td`` (its ``domains`` rules
+    applied) that a screen switch types (kind ``other``) is also an object write: two rules
+    for one value. A property of another kind, a domain's included, keeps its own type, so
+    it may carry both."""
+    screen = screen_switches(pn, titles)
+    objects = (titles or {}).get("object_writes") or {}
+    for prop in td.get("properties", []):
+        ident = prop.get("identifier") if isinstance(prop, dict) else None
+        if ident in screen and ident in objects and kind_of(prop) == "other":
+            raise GeneratorError(f"{pn}: screen switch {ident} is also an object write")
 
 
 _DOMAIN_FILL = "fill"  # only where the product's TD declares no values or range
