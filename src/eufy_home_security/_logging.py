@@ -31,7 +31,7 @@ from collections.abc import Mapping
 from typing import Final
 
 from .models import IDENTIFYING_PARAMS
-from .p2p._json import parse_json
+from .p2p._json import MAX_JSON_DEPTH, parse_json
 
 PACKAGE_LOGGER: Final = logging.getLogger("eufy_home_security")
 PACKAGE_LOGGER.addHandler(logging.NullHandler())
@@ -137,9 +137,22 @@ SENSITIVE_KEY_PARTS: Final = (
 )
 
 
+#: Keys whose values locate the house (its address and coordinates; ``longtitude`` as
+#: eufy spells it), compared like :data:`IDENTIFYING_KEYS`, which holds them too. Not
+#: the whole rule: a key whose last word is in :data:`LOCATION_KEY_SUFFIXES` counts too.
+LOCATION_KEYS: Final = frozenset(
+    {"address", "houseaddress", "location", "latitude", "longitude", "longtitude", "lat",
+     "lng", "lon"}
+)  # fmt: skip
+
+#: Last words of an address key whatever the prefix (``home_address``; also a network or
+#: e-mail address: ``router_addr``, ``macAddress``), split as for
+#: :data:`IDENTIFYING_KEY_SUFFIXES`, which holds them too.
+LOCATION_KEY_SUFFIXES: Final = frozenset({"address", "addr"})
+
 #: Keys whose values identify the account, a person, a device or the house, compared
 #: with case, ``_`` and ``-`` ignored (``device_sn``, ``mValueStrSub``, ``app-conn``).
-IDENTIFYING_KEYS: Final = frozenset(
+IDENTIFYING_KEYS: Final = LOCATION_KEYS | frozenset(
     {
         # account and people
         "account", "accountid", "userid", "uid", "shortuserid", "adminuserid",
@@ -154,9 +167,6 @@ IDENTIFYING_KEYS: Final = frozenset(
         "name", "devicename", "stationname", "devicealiasname", "homename", "roomname",
         "houseid", "homeid", "roomid", "mac", "btmac", "wifimac", "ssid", "wifissid",
         "appconn", "p2pconn", "ip", "ipaddr", "macaddr", "bssid", "localip", "androidid", "fid", "housename",
-        # the house's location
-        "address", "houseaddress", "location", "latitude", "longitude", "longtitude", "lat",
-        "lng", "lon",
         # media on the station's disk
         "file", "filepath", "path", "thumbpath", "storagepath", "croppath", "videopath",
         "coverpath", "cloudpath", "crophb3path", "cropcloudpath", "snapshotcloud", "mp4cloud",
@@ -167,8 +177,8 @@ IDENTIFYING_KEYS: Final = frozenset(
 #: Last words of a key that identify its value whatever the prefix (``ap_ssid``,
 #: ``ap_ip``, ``apMac``, ``hub_sn``, ``router_addr``); words split at ``_``, ``-`` and
 #: a case change (``apMac``, ``APMac``). Not ``name``: ``table_name`` and ``app-name`` name no one.
-IDENTIFYING_KEY_SUFFIXES: Final = frozenset(
-    {"ssid", "bssid", "ip", "ipv4", "ipv6", "mac", "sn", "addr", "address", "did"}
+IDENTIFYING_KEY_SUFFIXES: Final = LOCATION_KEY_SUFFIXES | frozenset(
+    {"ssid", "bssid", "ip", "ipv4", "ipv6", "mac", "sn", "did"}
 )
 _KEY_WORDS = re.compile(r"[_\-]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
@@ -307,11 +317,17 @@ def _credential(key: str) -> bool:
     return any(part in lowered for part in CREDENTIAL_KEY_PARTS)
 
 
-def _identifying(key: str) -> bool:
-    if key.lower().replace("_", "").replace("-", "") in IDENTIFYING_KEYS:
+def _key_in(key: str, keys: frozenset[str], suffixes: frozenset[str]) -> bool:
+    """Whether ``key`` (case, ``_`` and ``-`` ignored) is one of ``keys``, or its last
+    word (:data:`_KEY_WORDS`) one of ``suffixes``."""
+    if key.lower().replace("_", "").replace("-", "") in keys:
         return True
     words = [word for word in _KEY_WORDS.split(key) if word]
-    return bool(words) and words[-1].lower() in IDENTIFYING_KEY_SUFFIXES
+    return bool(words) and words[-1].lower() in suffixes
+
+
+def _identifying(key: str) -> bool:
+    return _key_in(key, IDENTIFYING_KEYS, IDENTIFYING_KEY_SUFFIXES)
 
 
 class Payload:
@@ -421,6 +437,54 @@ def redact(value: object, visible: int = 4) -> str:
     if len(text) <= visible * 2:
         return "*" * len(text)
     return f"***{text[-visible:]}"
+
+
+def redact_location(value: object) -> object:
+    """A copy of the JSON-like ``value`` without its location and address members.
+
+    Mappings, lists and tuples are copied at any depth (a mapping as a ``dict``, a list
+    or tuple subclass as a plain ``list`` or ``tuple``), leaving out every member whose
+    key is one of :data:`LOCATION_KEYS` or has its last word in
+    :data:`LOCATION_KEY_SUFFIXES` (which also drops network and e-mail addresses),
+    matched as the logs match identifying keys. A key that is no string is kept. Any
+    other object comes back as it is, unread and not copied: a JSON text or base64 of
+    one (decode it first), a set, a dataclass. A container nested deeper than
+    :data:`~.p2p._json.MAX_JSON_DEPTH`, or met again inside itself (a cycle), comes back
+    empty; a container shared by several members is read once and its copy shared the
+    same way. So no value raises or runs long. ``value`` is never changed.
+    """
+    return _without_location(value, 1, set(), {})
+
+
+def _without_location(
+    value: object, depth: int, path: set[int], done: dict[tuple[int, int], object]
+) -> object:
+    """``value`` redacted at ``depth``; ``path`` holds the ids of the containers being
+    copied, ``done`` the copies made, by id and depth."""
+    if not isinstance(value, Mapping | list | tuple):
+        return value
+    if depth > MAX_JSON_DEPTH or id(value) in path:
+        return {} if isinstance(value, Mapping) else () if isinstance(value, tuple) else []
+    key = (id(value), depth)
+    if key in done:
+        return done[key]
+    path.add(id(value))
+    try:
+        if isinstance(value, Mapping):
+            copy: object = {
+                name: _without_location(member, depth + 1, path, done)
+                for name, member in value.items()
+                if not (
+                    isinstance(name, str) and _key_in(name, LOCATION_KEYS, LOCATION_KEY_SUFFIXES)
+                )
+            }
+        else:
+            items = [_without_location(item, depth + 1, path, done) for item in value]
+            copy = tuple(items) if isinstance(value, tuple) else items
+    finally:
+        path.discard(id(value))
+    done[key] = copy
+    return copy
 
 
 def redact_serial(serial: str | None) -> str:
