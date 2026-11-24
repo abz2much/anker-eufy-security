@@ -6,6 +6,7 @@ import base64
 import contextlib
 import json
 import struct
+import time
 from datetime import date
 from typing import Any
 
@@ -341,6 +342,37 @@ def test_json_decoders_reject_non_finite_numbers_and_deep_nesting() -> None:
     assert _json.loads_json(' {"a": [1]} ') == {"a": [1]}
     with pytest.raises(ProtocolError):
         _json.loads_json('{"a":1} trailing')
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        ("[" * (_json.MAX_JSON_DEPTH + 1) + "]" * (_json.MAX_JSON_DEPTH + 1), "nested deeper"),
+        ('{"a":NaN}', "non-finite"),
+        ('{"a":1} x', "trailing data"),
+        ("", "Expecting value"),
+        ("\xa0{}", "Expecting value"),
+    ],
+    ids=["past-limit", "nan", "trailing", "empty", "non-json-blank"],
+)
+def test_parse_json_refuses_before_or_while_parsing(text: str, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        _json.parse_json(text)
+
+
+def test_an_unterminated_string_of_escaped_quotes_is_scanned_in_linear_time() -> None:
+    text = '["' + '\\"' * 100_000 + "]"
+    started = time.monotonic()
+    assert not _json._too_deep(text)
+    assert time.monotonic() - started < 1.0
+    assert _json._too_deep('"' + "[" * (_json.MAX_JSON_DEPTH + 1)) is False  # inside a string
+    assert _json._too_deep("[" * (_json.MAX_JSON_DEPTH + 1) + '"')
+
+
+def test_parse_json_takes_the_limit_and_json_whitespace() -> None:
+    limit = _json.MAX_JSON_DEPTH
+    assert _json.parse_json("[" * limit + "]" * limit) is not None
+    assert _json.parse_json(' \n{"a": [1]}\r\t') == {"a": [1]}
 
 
 @pytest.mark.parametrize(
