@@ -370,6 +370,16 @@ class ProtocolError(EufySecurityError):
     """A frame could not be decoded or decrypted."""
 
 
+class LockReplyMismatchError(ProtocolError):
+    """A well-formed lock answer that does not answer this request.
+
+    It names another lock, another command, or, answering a 1940 time-key request, a
+    positive time value other than the request's, encrypted or not (a late answer to an
+    earlier command). A caller waiting for its own answer keeps waiting; the eufy app
+    drops such an answer the same way.
+    """
+
+
 class HandshakeError(ProtocolError):
     """The P2P session key could not be established.
 
