@@ -1323,7 +1323,7 @@ class Station:
         self, device_sn: str, door: int, *, operate: bool = False, timeout: float | None = None
     ) -> GarageDoorState:
         """Open garage door ``door`` (1 or 2) of ``device_sn`` and wait until the door
-        reports open; see :meth:`async_close_garage_door`."""
+        reports open; see :meth:`async_close_garage_door` (the wait, errors, a cancel)."""
         return await self._garage.async_move(
             device_sn, door, GarageAction.OPEN, operate=operate, timeout=timeout
         )
@@ -1347,7 +1347,7 @@ class Station:
         is shown while the wait goes on. No report within ``timeout`` seconds (default
         :data:`~.garage.GARAGE_CONFIRM_TIMEOUT`, the app's wait) raises
         ``DeviceTimeoutError``. A door already in the asked state returns at once; nothing
-        is sent.
+        is sent, unless a cancelled command still moves it (below).
 
         A door whose state is unknown raises ``DoorStateUnknownError`` unless ``operate``
         is set: then the app's operate command is sent, which runs the motor whichever way
@@ -1356,9 +1356,15 @@ class Station:
         Raises before anything is sent: ``UnsupportedError`` for a device without garage
         doors or a door without a bound motor, ``ValueError`` for another door number,
         ``DeviceBusyError`` while another door command of this client waits on the device
-        (to reverse a moving door, cancel the waiting call first; cancelling sends nothing
-        and the door reads its last reported state again). A refused command raises as
-        :meth:`~..p2p.session.StationSession.async_run_recipe` does
+        (to reverse a moving door, cancel the waiting call first). Cancelling sends nothing:
+        once the device took the open or close, the door reads opening or closing until a
+        report of that door or of a new state, at most
+        :data:`~.garage.GARAGE_CONFIRM_TIMEOUT` after the take (then its last report again,
+        with a :class:`~..events.GarageDoorChanged`), and meanwhile the next open or close
+        of that door is sent even where the last report is the asked state. The device took
+        the command once the library processed its receipt: cancelled before that (or in
+        the same instant as the receipt arrives), the door reads its last reported state. A refused
+        command raises as :meth:`~..p2p.session.StationSession.async_run_recipe` does
         (``CommandRejectedError`` and its subclasses).
         """
         return await self._garage.async_move(
@@ -1643,11 +1649,13 @@ class Station:
         await self.session.async_start()
 
     async def async_close(self) -> None:
-        """Close the session; forget the device-siren states and cancel their expiry."""
+        """Close the session; forget the device-siren states and cancel their expiry and
+        the held garage doors' expiry."""
         try:
             await self.session.async_close()
         finally:
             await self._activity.close()
+            self._garage.close()
             for timer in self._alarms.siren_expiry.values():
                 timer.cancel()
             self._alarms.siren_expiry.clear()

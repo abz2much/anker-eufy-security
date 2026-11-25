@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Collection, Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
 from .._logging import redact_serial
@@ -63,8 +64,17 @@ _TARGET: Final[Mapping[GarageAction, GarageDoorState]] = {
     GarageAction.CLOSE: GarageDoorState.CLOSED,
 }
 
-_Waiter = tuple[GarageDoorState | None, asyncio.Future[GarageDoorState]]
-"""A waiting command's asked state (None: any known state) and its future."""
+
+@dataclass(slots=True)
+class _Waiter:
+    """A waiting door command."""
+
+    target: GarageDoorState | None
+    """The asked state; None: any known state (operate)."""
+    future: asyncio.Future[GarageDoorState]
+    taken_at: float | None = None
+    """Loop time the device took the command (its door's moving state is then the
+    command's); None: not taken."""
 
 
 class StationGarage:
@@ -75,7 +85,9 @@ class StationGarage:
     the cloud's copy; a value is taken when it differs from the previous one of that
     parameter) or the device's door-state notify, whose bits become the held state
     parameter. While a command of this client waits, the door reads opening or closing
-    until its report.
+    until its report; so does a door whose open or close the device took when its call was
+    cancelled, until a report of that door or of a new state, at most
+    :data:`GARAGE_CONFIRM_TIMEOUT` after the take.
     """
 
     def __init__(self, station: Station, bus: EventBus) -> None:
@@ -85,6 +97,12 @@ class StationGarage:
         """Per device, the state parameter's value last taken."""
         self._reported: dict[tuple[str, int], GarageDoorState] = {}
         self._moving: dict[tuple[str, int], GarageDoorState] = {}
+        """Per door, opening or closing: a waiting command's, or one whose call was
+        cancelled after the device took it (no waiter), until the door's report or the
+        hold's expiry."""
+        self._hold_expiry: dict[tuple[str, int], asyncio.TimerHandle] = {}
+        """Per door held by a cancelled command, the end of the hold
+        (:data:`GARAGE_CONFIRM_TIMEOUT` after the take)."""
         self._sources: dict[tuple[str, int], GarageDoorSource] = {}
         """Per door, what delivered :attr:`_reported`."""
         self._emitted: dict[tuple[str, int], GarageDoorState] = {}
@@ -190,21 +208,48 @@ class StationGarage:
     ) -> None:
         """Take a report of ``device_sn``'s door-state bits; ``doors``: the doors a door
         notify reports on. A report that ends a waiting command (:func:`_ends`) shows the
-        reported state at once."""
+        reported state at once; so does a report of a door (or a change of its state)
+        that moves by a cancelled command."""
         for door in DOORS:
             key = (device_sn, door)
             state = door_state(bits, door)
+            changed = self._reported.get(key) is not state
             self._reported[key] = state
             self._sources[key] = source
             waiter = self._waiters.get(key)
-            if (
+            ends = (
                 waiter is not None
-                and not waiter[1].done()
-                and _ends(waiter[0], state, door in doors)
-            ):
+                and not waiter.future.done()
+                and _ends(waiter.target, state, door in doors)
+            )
+            taken = waiter is not None and waiter.taken_at is not None
+            # A cancelled command's door moves until a report of it or of a new state.
+            if ends or (not taken and (door in doors or changed)):
                 self._moving.pop(key, None)
-                waiter[1].set_result(state)
+                self._end_hold(key)
+            if waiter is not None and ends:
+                waiter.future.set_result(state)
             self._emit(device_sn, door, source)  # reads moving while a command waits
+
+    def _end_hold(self, key: tuple[str, int]) -> None:
+        timer = self._hold_expiry.pop(key, None)
+        if timer is not None:
+            timer.cancel()
+
+    def _expire_hold(self, key: tuple[str, int]) -> None:
+        # A loop callback: an error is logged; the door reads its last report again.
+        try:
+            del self._hold_expiry[key]
+            if self._moving.pop(key, None) is not None:
+                self._emit(*key, self._sources.get(key, GarageDoorSource.COMMAND))
+        except Exception:
+            _LOGGER.exception("%s: garage door hold expiry failed", redact_serial(key[0]))
+
+    def close(self) -> None:
+        """Cancel every held door's expiry."""
+        for timer in self._hold_expiry.values():
+            timer.cancel()
+        self._hold_expiry.clear()
 
     def _emit(self, device_sn: str, door: int, source: GarageDoorSource) -> None:
         key = (device_sn, door)
@@ -253,7 +298,7 @@ class StationGarage:
             )
         key = (device_sn, door)
         current = self._reported.get(key, GarageDoorState.UNKNOWN)
-        if current is _TARGET[action]:
+        if current is _TARGET[action] and key not in self._moving:
             return current
         target: GarageDoorState | None = _TARGET[action]
         if current is GarageDoorState.UNKNOWN:
@@ -284,8 +329,10 @@ class StationGarage:
         deadline = time.monotonic() + budget
         moving = _MOVING.get(action)
         future: asyncio.Future[GarageDoorState] = asyncio.get_running_loop().create_future()
+        waiter = _Waiter(target, future)
+        held = False
         self._busy.add(device_sn)
-        self._waiters[key] = (target, future)
+        self._waiters[key] = waiter
         try:
             session = self._station.session
             await session.async_connect()
@@ -302,12 +349,22 @@ class StationGarage:
                 door,
                 action,
             )
+            loop = asyncio.get_running_loop()
+            waiter.taken_at = taken_at = loop.time()
+            self._end_hold(key)  # this command's moving state replaces a held one
             if moving is not None and not future.done():
                 self._moving[key] = moving
                 self._emit(device_sn, door, GarageDoorSource.COMMAND)
             try:
                 async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
                     state = await future
+            except asyncio.CancelledError:
+                held = moving is not None  # the door moves on until its report
+                if held:  # at most as long as the app waits
+                    self._hold_expiry[key] = loop.call_at(
+                        taken_at + GARAGE_CONFIRM_TIMEOUT, self._expire_hold, key
+                    )
+                raise
             except TimeoutError as err:
                 raise DeviceTimeoutError(
                     f"{redact_serial(device_sn)}: door {door} reported no "
@@ -327,7 +384,8 @@ class StationGarage:
         finally:
             self._busy.discard(device_sn)
             self._waiters.pop(key, None)
-            if self._moving.pop(key, None) is not None:
+            # Not taken: an earlier cancelled command's moving state stays as it is.
+            if waiter.taken_at is not None and not held and self._moving.pop(key, None) is not None:
                 self._emit(device_sn, door, self._sources.get(key, GarageDoorSource.COMMAND))
 
 
