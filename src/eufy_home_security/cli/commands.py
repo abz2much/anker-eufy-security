@@ -39,11 +39,15 @@ if TYPE_CHECKING:
     import aiohttp
 
     from ..client import EufySecurity
+    from ..cloud.api import EufyCloudApi
     from ..devices.model_settings import Setting, Value
+    from ..mqtt.account import EufyMqttAccount
     from ..p2p.session.media_stream import MediaStream
     from ..station import Station
 
 LOGIN_CHALLENGE_ROUNDS = 3
+_MQTT_CONNECT_WAIT = 30.0
+"""Seconds ``mqtt --connect`` waits for the broker connection."""
 MAX_DEVICE_CHANNEL = 50
 """Highest sub-device channel a station addresses; the station itself is ``STATION_CHANNEL``."""
 
@@ -321,6 +325,64 @@ async def cmd_devices(ctx: Context) -> int:
         )
     print(render.render_devices(devices, show_serials=ctx.show_serials))
     return 0
+
+
+def mqtt_account(cloud: EufyCloudApi) -> EufyMqttAccount:
+    """The account's MQTT connections (a seam for tests against a local broker)."""
+    from ..mqtt.account import EufyMqttAccount  # noqa: PLC0415 - the optional extra
+
+    return EufyMqttAccount(cloud)
+
+
+async def cmd_mqtt(ctx: Context) -> int:
+    """List the account's MQTT devices; with ``--connect``, fetch the certificate, connect,
+    subscribe their answer topics and listen, never publishing anything."""
+    from ..mqtt import mqtt_devices, topic_code  # noqa: PLC0415
+    from ..mqtt.envelope import response_topic  # noqa: PLC0415
+
+    async with await open_account(ctx) as eufy:
+        await eufy.async_login()
+        every = await asyncio.to_thread(mqtt_devices, await eufy.cloud.async_get_devices())
+        devices, subscribe = every, None
+        if ctx.args.devices:
+            wanted = {serial.strip().upper() for serial in ctx.args.devices}
+            unknown = wanted - {d.device_sn.upper() for d in every}
+            if unknown:
+                raise UsageError(
+                    f"no MQTT device {', '.join(sorted(unknown))}; `{PROG} mqtt` lists them"
+                )
+            # The filter narrows the subscriptions; the certificate covers every device.
+            devices = [d for d in every if d.device_sn.upper() in wanted]
+            subscribe = [d.device_sn for d in devices]
+        topics = {d.device_sn: response_topic(topic_code(d), d.device_sn) for d in devices}
+        print(render.render_mqtt_devices(devices, topics, show_serials=ctx.show_serials))
+        if not ctx.args.connect:
+            print(
+                "Dry run: nothing was requested. --connect fetches the certificate, connects "
+                "and subscribes these topics; it never publishes."
+            )
+            return 0
+        if not devices and not ctx.args.connect_empty:
+            raise UsageError(
+                "the account has no MQTT device; --connect-empty connects without a subscription"
+            )
+        # One connection per login scope holding MQTT devices.
+        account = mqtt_account(eufy.cloud)
+        received: list[object] = []
+        account.add_listener(received.append)
+        try:
+            await account.async_start(
+                every, subscribe=subscribe, connect_without_devices=ctx.args.connect_empty
+            )
+            await account.async_wait_connected(_MQTT_CONNECT_WAIT)
+            await asyncio.sleep(ctx.args.seconds)
+            accepted = len(account.topics & set(topics.values()))
+        finally:
+            await account.async_stop()
+    print("Broker: connected (TLS with the account's client certificate)")
+    print(f"Topics accepted: {accepted} of {len(topics)}")
+    print(f"Messages received in {ctx.args.seconds:g} s: {len(received)}")
+    return 0 if accepted == len(topics) else EXIT_ERROR
 
 
 async def cmd_invites(ctx: Context) -> int:
@@ -761,6 +823,7 @@ COMMANDS: dict[str, Callable[[Context], Coroutine[Any, Any, int]]] = {
     "login": cmd_login,
     "devices": cmd_devices,
     "invites": cmd_invites,
+    "mqtt": cmd_mqtt,
     "network": cmd_network,
     "status": cmd_status,
     "coverage": cmd_coverage,
