@@ -1762,6 +1762,79 @@ a station, stay their own entities); the colour temperature
 and `config` settings stay entities of their own. Writes go through `async_set_setting` as
 for any setting.
 
+### Locks
+
+A device graded `Capability.LOCK` (*declared (eufy app)*: every bundled lock model whose
+settings file names its lock-state parameter, see the [support
+matrix](../reference/devices.md#locks-and-garage-doors); a smart safe has none) has a lock
+state. This release reads it only: there is no lock or unlock command, so make a read-only
+entity (a `lock` entity whose `async_lock`/`async_unlock` raise, or a sensor) and no
+service.
+
+`station.lock_state(device_sn)` gives a `LockReading` (None before anything was reported,
+and for a device that is no lock): `state`, a `LockState`, `source` (`p2p`, `notify`,
+`cloud` or `push`), `raw` (the parameter's value) or `event_type` (the push's). Every change
+of `state` emits `LockStateChanged(device_sn, state, source, station_sn, raw, event_type)`
+on the client's stream, the first state included; read the state from the event or from
+`lock_state`. The state is the lock-state code as the eufy app's lock controls read the
+lock's `smart_lock_onoff_status`, or what a push about the lock sets:
+
+| `LockState` | lock-state code (param 1912 behind a station, 6000 for a lock that is its own station) | push `event_type` | suggested HA lock state (the library's suggestion) |
+|---|---|---|---|
+| `initial` | 0 (nothing reported yet) | | unknown |
+| `uncalibrated` / `calibrating` | 1 / 2 | | unknown |
+| `unlocked` | 3 | an unlock event: 257-261, 269, 270, 530, 532, 538, 549, 550, 562 | unlocked |
+| `locked` | 4 | a lock event: 262-268, 271, 531, 533, 551, 552, 561 | locked |
+| `intermediate` | 5 (the bolt stopped between its positions; the app shows it as jammed) | | jammed |
+| `unlocking` / `locking` | 6 / 7 | | unlocking / locking |
+| `passage_mode` | 8 (held unlocked) | | unlocked |
+| `privacy_mode` | 9 (locked against every key but the owner's) | | locked |
+| `jammed` | | 517, 519 (mechanical fault) | jammed |
+| `unknown` | any other code, a value that is no number, nothing reported | 516 (the lock went offline) | unknown |
+
+The parameter and the pushes are ordered by time, as the guard mode is: a push is ignored
+when it is more than 300 s old, older than the last push taken, or more than 30 s older
+than the lock's last parameter report; a parameter value is taken when it moves, and also
+when it repeats but dates from after the push the state came from. So the next dump after
+a push replaces it, and `jammed`, which only a push reports, lasts until the lock's next
+report ([events.md](../protocol/events.md#lock-pushes-declared-app)). Keep `state` (and
+`raw`) as attributes when the entity maps passage and privacy mode to unlocked and
+locked.
+A lock the library reaches through no station (a Wi-Fi lock without a P2P id is skipped,
+`SkippedDevice`) has no state here.
+
+### Garage doors
+
+A garage-door camera graded `Capability.GARAGE_DOOR` (*declared (eufy app)*, from its
+settings file's `garage`: the garage-door cameras T8452 and T8453) drives up to two doors.
+`station.garage_doors(device_sn)` gives one `GarageDoor` per door its unit reports a motor
+or a sensor bound to: `door` (1 or 2, the app's doors A and B), `motor_bound`,
+`sensor_bound`, `sensor_calibrated` and `state`, a `GarageDoorState` (`open`, `closed`,
+`opening`, `closing`, `unknown`). Make one `cover` entity (device class `garage`) per door,
+with open and close where `motor_bound`. Each change emits
+`GarageDoorChanged(station_sn, device_sn, door, state, source)`: `source` `p2p`, `notify`,
+`cloud` (the door-state parameter or the camera's door notify) or `command`.
+
+`await station.async_open_garage_door(device_sn, door)` and `async_close_garage_door`
+send the app's door command and **confirm by the door's report**: the door reads
+`opening`/`closing` until the camera's next door notify for it (the camera reports no
+movement; the app shows the same between its send and the report). That report ends the
+wait, as it ends the app's, and the door reads the reported state at once: the asked
+state returns, another one (the door stopped, reversed, or reads `unknown`) raises
+`DoorNotMovedError` (`err.state`, `err.door`). A report of the camera's other door is
+shown and the wait goes on. No report within `timeout` (default `GARAGE_CONFIRM_TIMEOUT`,
+300 s, the app's wait) raises `DeviceTimeoutError` and the door reads its last reported
+state again; run the call as a task and let the events drive the entity. A door already in
+the asked state returns at once. To reverse a moving door (a close while the open still
+waits), cancel the running task first: a second command while one waits raises
+`DeviceBusyError`, and the cancelled call sends nothing and leaves the door at its last
+reported state. A door in an `unknown` state raises `DoorStateUnknownError` (an `UnsupportedError`),
+since open and close cannot be told apart: pass `operate=True` for the app's operate
+command, which runs the motor whichever way it moves the door (offer it as a separate
+button or confirm it, never as a plain open). A door without a bound motor raises
+`UnsupportedError`, a second command while one waits on the camera `DeviceBusyError`, a
+refused command `CommandRejectedError`.
+
 ### Camera images
 
 A camera has three image sources, described as data in `IMAGE_SOURCES`
@@ -3185,7 +3258,7 @@ The library raises typed errors; translate them at the coordinator / setup bound
 | `LoginLimitedError` (a `RateLimitedError`) | not a reauth: the credentials are fine. Raise a repair issue ("eufy is refusing logins, retrying in …"; with `origin == "budget"` it is the library's own limit for `scope`, see below the table) and carry on from the cache as above; `raise ConfigEntryNotReady` only on a cold cache. Clear the issue on the next successful login |
 | `RateLimitedError` | `raise ConfigEntryNotReady` / `UpdateFailed`; schedule the next attempt no sooner than `err.retry_after` seconds |
 | `StationUnreachableError`, `DeviceTimeoutError` | `raise UpdateFailed` — the session's own supervisor is already reconnecting. A reply wait moves its deadline out by the time something else held the event loop (another integration's blocking setup at HA start; up to `p2p.session.LOOP_STALL_MAX`, 30 s), so a held loop alone does not raise `DeviceTimeoutError` |
-| `DeviceBusyError` (a `CommunicationError`, raised while an image capture holds the camera: by another capture, a default-preset write or a pan/tilt step) | not an outage: from a button or service action, `raise HomeAssistantError` ("capture in progress"); never `UpdateFailed` |
+| `DeviceBusyError` (a `CommunicationError`, raised while an image capture holds the camera: by another capture, a default-preset write or a pan/tilt step; and for a garage door command while another one waits for its door) | not an outage: from a button or service action, `raise HomeAssistantError` ("capture in progress", "the door is still moving"); never `UpdateFailed` |
 | `CommandNotAppliedError` | surface to the user; usually a wrong owner id or an unpaired channel |
 | `InviteCodeError` (from `async_accept_invite`) | not a reauth: the invitation needs the code its inviter shared. Show the form again with an error: `missing` → "enter the code", otherwise "wrong code". Nothing was sent |
 | `AccountRejectedError` (a `CommandRejectedError`; `code` −104, `INVALID_ACCOUNT`) | the station refused the account the command was sent under, on any command path (arm, setting write, device alarm, preset edit, station action, storage or event read, media open). Retrying changes nothing: `raise HomeAssistantError` with the account hint ("the station does not accept this account: check in the eufy app that it is shared with this account, or remove and add it again"). Catch it before `CommandRejectedError` |
@@ -3200,6 +3273,8 @@ The library raises typed errors; translate them at the coordinator / setup bound
 | `RecordingRefError` (a `ValueError`) | `async_history_record_by_ref` got a `ref` that does not check out for that station (and `device_sn`), or one that no longer parses; nothing was sent. Answer "not found" and let the client list again; never retry the same ref. A plain `RecordNotFoundError` from that call means the station no longer lists the row (on a station paged by start time, or that a full page of rows of its own start second hides it): answer "not found", let the client list again, and do not retry the same ref |
 | `CaptureStoppedError` | a live capture's `stop` was set before its first keyframe: nothing was recorded, nothing to store. Not an error for the user who pressed stop |
 | `ConfigChangedError` (`config`, `expected`) | a write's `expect_revision` is stale: the station's configuration changed elsewhere and nothing was sent. Show `err.config` and let the user redo the edit; not an outage |
+| `DoorStateUnknownError` (an `UnsupportedError`) | a garage door's state is unknown, so open and close were refused; nothing was sent. `raise HomeAssistantError` and offer the operate action (`operate=True`) separately |
+| `DoorNotMovedError` (a `CommandNotAppliedError`; `door`, `state`) | the camera took a garage-door command, but the door's report says `state` (closed after an open, open after a close, or unknown): blocked or reversed. The door's entity already shows `state`; `raise HomeAssistantError` naming it, never retry on its own. Catch it before `CommandNotAppliedError` |
 | `ModeInUseError` (an `UnsupportedError`; `reason`) | the mode is in use (current, or named by the schedule or its default); nothing was sent. `raise HomeAssistantError` with `reason` |
 | `KeyExchangeRefusedError` (a `CloudApiError`; `code` 4404 or 463, `status` 463) | the cloud gateway refused the client's key identity and a new key exchange did not restore it. Not a reauth and not a kick-out: no login was attempted and none helps by itself. Carry on from the cache and retry on the next interval; the library re-keys at each attempt. Raise a repair issue only if it persists (hours) |
 | any error with `device_sn` (every `EufySecurityError` has the attribute, None by default) | the message names a device by its redacted serial (`T8030***4321 has no local station`); `err.device_sn` is that device's full serial (the first one the message names). Map it to the device's name for the user instead of matching the redacted form in the text; the message itself stays as it is, fit for logs |

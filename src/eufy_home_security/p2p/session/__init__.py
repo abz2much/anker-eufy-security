@@ -842,6 +842,14 @@ class StationSession:
         """
         self._param_state.apply_local_params(channel, values)
 
+    def apply_reported_params(self, channel: int, values: Mapping[int, str]) -> None:
+        """Merge parameter values a device reported in another notify than a parameter
+        notify (a garage door's state notify), as a parameter notify's: filed on the
+        frame's device, dated now, replaced by the next dump's value. Emits
+        ``ParamChanged`` for each change and notifies the dump listeners.
+        """
+        self._param_state.apply_notify(channel, values)
+
     @property
     def storage(self) -> StorageInfo | None:
         """The last storage record read or pushed on this session; None until one arrives."""
@@ -900,6 +908,13 @@ class StationSession:
         A failing read signals nothing. A failing callback is logged, never raised.
         """
         return self._param_state.add_dump_listener(callback)
+
+    @property
+    def user_name(self) -> str:
+        """The account's name the session's credentials carry (the eufy app sends its
+        nickname in a command's ``user_name``). Raises :class:`CommunicationError` before
+        the credentials are loaded (:meth:`async_connect` loads them)."""
+        return self._require_creds().user_name
 
     def add_notify_listener(
         self, callback: Callable[[Mapping[str, Any], FrameCipher], None]
