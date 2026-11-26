@@ -671,9 +671,6 @@ the same session, is another. On an E340 (T8214) on a HomeBase 3, presses 6-62 s
 face detection (3102) were dropped as duplicates (`dropped_duplicates`) while the key was
 `session:<device_sn>:<session_id>` alone; the session was the only key the two could share
 (different seconds, no `push_count` > 1). The payloads themselves were not captured.
-Two presses that name one session are one occurrence (the second is dropped); whether a
-doorbell reuses a session for a repeat press is not known. Presses 62 s apart with no
-detection before them both rang, so those did not share a key.
 
 **Several pushes per detection [app].** The eufy app treats the pushes of one session
 (`session_id`), or with one `event_time`, as one notification and lets the later one

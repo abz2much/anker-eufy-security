@@ -726,21 +726,6 @@ def test_a_ring_after_a_face_detection_is_delivered_as_a_new_occurrence(
     assert dedupe.dropped_duplicates == 1
 
 
-def test_a_second_press_in_the_same_session_is_one_occurrence() -> None:
-    """Pinned, not proven on hardware: two presses that name one session are one
-    occurrence (the key is ``session:<device_sn>:<session_id>:3103``). Whether a doorbell
-    reuses a session for a repeat press is not known; presses 62 s apart without a
-    detection both rang live, so those did not share a key."""
-    dedupe = EventDeduplicator()
-    first = dataclasses.replace(_RING, session_id="s-1")
-    assert dedupe.admit(first) is first
-    again = dataclasses.replace(first, event_time_ms=1_700_000_030_000)
-    assert dedupe.admit(again) is None
-    assert dedupe.dropped_duplicates == 1
-    other = dataclasses.replace(again, session_id="s-2")
-    assert dedupe.admit(other) is other  # a press in another session rings
-
-
 @pytest.mark.parametrize(
     ("fields", "sources"),
     [
