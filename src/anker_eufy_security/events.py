@@ -767,19 +767,21 @@ class SecurityEvent:
         """The occurrence's key, the same on both channels and on every push of it.
 
         ``unique:<unique_id>`` when the payload carries a ``unique_id`` (both copies of a
-        detection do); else ``session:<device_sn>:<session_id>`` when it carries a
+        detection do); else ``session:<device_sn>:<session_id>:kind`` when it carries a
         ``session_id``. Otherwise ``device_sn:event second:kind``, None without a device
         or a time: seconds, because an FCM time without an inner time is whole seconds
         while P2P ``trigger_time`` is milliseconds. ``kind`` is ``detection`` for a
         camera detection (:data:`DETECTION_KINDS`), so a later push that classifies
-        the same detection differently is the same occurrence, else the ``event_type``.
+        the same detection differently is the same occurrence, else the ``event_type``:
+        a doorbell press (3103) in a detection's session is its own occurrence, not a
+        copy of the detection.
         """
         if self.unique_id is not None:
             return f"unique:{self.unique_id}"
         if self.device_sn is None:
             return None
         if self.session_id is not None:
-            return f"session:{self.device_sn}:{self.session_id}"
+            return f"session:{self.device_sn}:{self.session_id}:{_kind_token(self)}"
         if self.event_time_ms is None:
             return None
         return f"{self.device_sn}:{self.event_time_ms // 1000}:{_kind_token(self)}"

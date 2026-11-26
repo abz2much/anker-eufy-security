@@ -526,7 +526,7 @@ def test_station_events_and_events_without_a_key_are_always_admitted() -> None:
 def test_the_dedupe_key_is_the_session_without_a_unique_id() -> None:
     first = dataclasses.replace(_CLOUD, session_id="s-1")
     later = dataclasses.replace(first, event_time_ms=1_700_000_004_000, fetch_id="1a2b")
-    assert first.dedupe_key == later.dedupe_key == "session:camera-a:s-1"
+    assert first.dedupe_key == later.dedupe_key == "session:camera-a:s-1:detection"
     assert dataclasses.replace(first, unique_id="u-1").dedupe_key == "unique:u-1"
     assert dataclasses.replace(first, event_time_ms=None).dedupe_key == first.dedupe_key
 
@@ -667,6 +667,63 @@ def test_pushes_of_one_session_are_one_detection() -> None:
     assert dedupe.admit(later) is None
     other = dataclasses.replace(first, session_id="s-2")
     assert dedupe.admit(other) is other
+
+
+def test_the_session_key_names_the_kind_so_a_press_is_not_a_detection() -> None:
+    detection = dataclasses.replace(_P2P, session_id="s-1")
+    press = dataclasses.replace(detection, event_type=DetectionType.DOORBELL_PRESS)
+    assert detection.dedupe_key == "session:camera-a:s-1:detection"
+    assert press.dedupe_key == "session:camera-a:s-1:3103"
+
+
+# A doorbell ring seconds after a face detection of the same doorbell: live on an E340
+# (T8214) on a HomeBase 3, the ring came 6 s and 62 s after the 3102, in its session.
+_FACE = SecurityEvent(
+    source=EventSource.P2P,
+    device_sn="doorbell-a",
+    msg_type=18,
+    event_type=DetectionType.PERSON,
+    event_time_ms=1_700_000_000_000,
+    frame_cipher=FrameCipher.GCM,
+    push_count=1,
+)
+_RING = dataclasses.replace(
+    _FACE, event_type=DetectionType.DOORBELL_PRESS, event_time_ms=1_700_000_006_000
+)
+
+
+@pytest.mark.parametrize(
+    ("face_fields", "ring_fields", "ring_after"),
+    [
+        pytest.param({}, {}, 6.0, id="A-no-ids"),
+        pytest.param({"session_id": "s-1"}, {"session_id": "s-2"}, 6.0, id="B-other-session"),
+        pytest.param({"session_id": "s-1"}, {"session_id": "s-1"}, 6.0, id="C-same-session"),
+        pytest.param(
+            {"session_id": "s-1"},
+            {"session_id": "s-1", "thumb_path": "/zx/Camera00/snapshort.jpg"},
+            6.0,
+            id="D-same-session-new-media",
+        ),
+        pytest.param({"session_id": "s-1"}, {"session_id": "s-1"}, 62.0, id="E-same-session-62s"),
+    ],
+)
+def test_a_ring_after_a_face_detection_is_delivered_as_a_new_occurrence(
+    face_fields: dict[str, Any], ring_fields: dict[str, Any], ring_after: float
+) -> None:
+    clock = _Clock()
+    dedupe = EventDeduplicator(clock=clock)
+    face = dataclasses.replace(_FACE, **face_fields)
+    assert dedupe.admit(face) is face
+    clock.now = ring_after
+    ring = dataclasses.replace(
+        _RING, event_time_ms=1_700_000_000_000 + int(ring_after * 1000), **ring_fields
+    )
+    admitted = dedupe.admit(ring)
+    assert admitted is ring  # the ring itself, never dropped
+    assert not admitted.enriches  # nor an enrichment, which the integration fires nothing for
+    assert dedupe.dropped_duplicates == 0
+    assert dedupe.admit(ring) is None  # its own second copy is still a duplicate
+    assert dedupe.dropped_duplicates == 1
 
 
 @pytest.mark.parametrize(
