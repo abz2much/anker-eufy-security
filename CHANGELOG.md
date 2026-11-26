@@ -4,6 +4,13 @@ All notable changes to this project. The project follows
 [Semantic Versioning](https://semver.org/); before 1.0, a minor release may change the
 API. release-please writes the entries from the conventional commits.
 
+## [0.1.1](https://github.com/abz2much/anker-eufy-security/compare/v0.1.0...v0.1.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **events:** keep a doorbell press apart from a detection with its unique_id ([#6](https://github.com/abz2much/anker-eufy-security/issues/6)) ([830a3e5](https://github.com/abz2much/anker-eufy-security/commit/830a3e529461e6d143f62b8e9aed9bedd0fc1b31))
+
 ## 0.1.0 (2026-11-26)
 
 
