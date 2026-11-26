@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -72,3 +73,63 @@ def test_the_tree_is_fully_renamed() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stdout
+
+
+_GIT = shutil.which("git")
+_NEEDS_GIT = pytest.mark.skipif(_GIT is None, reason="git is not installed")
+
+
+def _git(cwd: Path, *args: str) -> None:
+    assert _GIT is not None
+    subprocess.run([_GIT, *args], cwd=cwd, check=True, capture_output=True)
+
+
+@_NEEDS_GIT
+def test_a_ported_file_beside_the_renamed_package_moves_into_it(tmp_path: Path) -> None:
+    """A port can add files under upstream's package folder while ours exists: each file
+    moves into ours, never the folder inside it."""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "rename_from_upstream.py").write_bytes(
+        (ROOT / "scripts" / "rename_from_upstream.py").read_bytes()
+    )
+    ours = tmp_path / "src" / "anker_eufy_security"
+    ours.mkdir(parents=True)
+    (ours / "kept.py").write_text("X = 1\n")
+    ported = tmp_path / "src" / OLD_PKG / "sub"
+    ported.mkdir(parents=True)
+    (ported / "new.py").write_text(f"from {OLD_PKG} import kept\n")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", ".")
+    script = tmp_path / "scripts" / "rename_from_upstream.py"
+    subprocess.run([sys.executable, "-I", str(script)], cwd=tmp_path, check=True)
+    moved = ours / "sub" / "new.py"
+    assert moved.read_text() == "from anker_eufy_security import kept\n"
+    assert (ours / "kept.py").read_text() == "X = 1\n"
+    assert not (tmp_path / "src" / OLD_PKG).exists()
+    assert not (ours / OLD_PKG).exists()
+
+
+@_NEEDS_GIT
+def test_a_ported_file_that_would_overwrite_ours_stops_the_rename(tmp_path: Path) -> None:
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "rename_from_upstream.py").write_bytes(
+        (ROOT / "scripts" / "rename_from_upstream.py").read_bytes()
+    )
+    for pkg in ("anker_eufy_security", OLD_PKG):
+        (tmp_path / "src" / pkg).mkdir(parents=True)
+        (tmp_path / "src" / pkg / "same.py").write_text(f"# {pkg}\n")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", ".")
+    script = tmp_path / "scripts" / "rename_from_upstream.py"
+    result = subprocess.run(
+        [sys.executable, "-I", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "same.py" in result.stderr
+    assert (tmp_path / "src" / "anker_eufy_security" / "same.py").read_text() == (
+        "# anker_eufy_security\n"
+    )

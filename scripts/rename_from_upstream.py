@@ -18,6 +18,10 @@ What it renames, in every git-tracked text file except those in ``KEEP``:
 
 ``PROTECTED`` phrases name alaraun's Home Assistant integration (its domain), not the
 library, and are left unchanged. ``--check`` exits 1 when anything would change.
+
+Files a port adds under upstream's package folder while ours exists are moved into ours
+one by one; one that would overwrite a file of ours stops the run (exit 2) before any
+move. ``uv.lock`` is never rewritten: run ``uv lock`` after a port.
 """
 
 from __future__ import annotations
@@ -82,9 +86,31 @@ def main(argv: list[str] | None = None) -> int:
     changed: list[str] = []
     old_dir, new_dir = ROOT / "src" / OLD_PKG, ROOT / "src" / NEW_PKG
     if old_dir.exists():
-        changed.append(f"src/{OLD_PKG}/ -> src/{NEW_PKG}/")
-        if not args.check:
-            subprocess.run(["git", "mv", str(old_dir), str(new_dir)], cwd=ROOT, check=True)
+        if not new_dir.exists():
+            changed.append(f"src/{OLD_PKG}/ -> src/{NEW_PKG}/")
+            if not args.check:
+                subprocess.run(["git", "mv", str(old_dir), str(new_dir)], cwd=ROOT, check=True)
+        else:
+            # A port added files beside ours: move each one, never the folder into ours.
+            prefix = f"src/{OLD_PKG}/"
+            ported = [name for name in _tracked_files() if name.startswith(prefix)]
+            clashes = [name for name in ported if (new_dir / name[len(prefix) :]).exists()]
+            if clashes:
+                print(f"would overwrite our files: {', '.join(clashes)}", file=sys.stderr)
+                return 2
+            for name in ported:
+                target = new_dir / name[len(prefix) :]
+                changed.append(f"{name} -> src/{NEW_PKG}/{name[len(prefix) :]}")
+                if not args.check:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    subprocess.run(["git", "mv", name, str(target)], cwd=ROOT, check=True)
+            if not args.check:
+                # git mv leaves the emptied folders; remove only those holding nothing.
+                for folder in sorted(old_dir.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+                    if folder.is_dir() and not any(folder.iterdir()):
+                        folder.rmdir()
+                if not any(old_dir.iterdir()):
+                    old_dir.rmdir()
     for name in _tracked_files():
         if _kept(name):
             continue
