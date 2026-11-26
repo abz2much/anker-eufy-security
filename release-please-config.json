@@ -16,7 +16,8 @@
         }
       ],
       "include-component-in-tag": false,
-      "release-as": "0.1.0"
+      "release-as": "0.1.0",
+      "last-release-sha": "aad23e4439de9516d5621e09918b2ed39d5577ce"
     }
   }
 }
