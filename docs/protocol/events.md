@@ -660,7 +660,7 @@ channels through one `EventDeduplicator` per account before emitting it
 reconnects. It holds at most 256 keys, each for one hour.
 
 **Key.** `SecurityEvent.dedupe_key` = `unique:<unique_id>` when the payload carries a
-`unique_id`; else `session:<device_sn>:<session_id>:kind` when it carries a `session_id`;
+`unique_id`; else `session:<device_sn>:<session_id>:<kind>` when it carries a `session_id`;
 else `device_sn:event second:kind`. The last compares the event time in **seconds**,
 because a cloud time without an inner time is whole seconds while P2P `trigger_time` is
 milliseconds. `kind` is `detection` for a camera detection (motion, person, pet,
