@@ -7,15 +7,15 @@ from datetime import time
 
 import pytest
 
-from eufy_home_security.models import GuardMode, ValueSource
-from eufy_home_security.p2p.station_config_codecs import (
+from anker_eufy_security.models import GuardMode, ValueSource
+from anker_eufy_security.p2p.station_config_codecs import (
     Schedule,
     ScheduleSlot,
     Weekday,
     decode_custom_modes,
     decode_schedule,
 )
-from eufy_home_security.testing import (
+from anker_eufy_security.testing import (
     SYNTHETIC,
     FakeCloud,
     FakeStation,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from eufy_home_security.devices.command_types import (
+from anker_eufy_security.devices.command_types import (
     APK_COMMAND_TYPES,
     COMMAND_NAMES,
     WIRE_EXTRAS,

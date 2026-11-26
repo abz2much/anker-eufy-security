@@ -1,4 +1,4 @@
-"""Generate ``src/eufy_home_security/devices/data/timezones.json`` from the eufy app's zone table.
+"""Generate ``src/anker_eufy_security/devices/data/timezones.json`` from the eufy app's zone table.
 
 The app ships one table of device time zones (``res/raw/time_zone_local.json``: rows of
 ``timeZoneName``, ``timeId``, ``timeSn``, ``timeZoneGMT``). A device stores its zone as
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_TABLE = (
     ROOT / ".work" / "re" / "decompiled-6.1.10" / "apkres" / "base" / "resources" / "res" / "raw"
 ) / "time_zone_local.json"
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "data" / "timezones.json"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "data" / "timezones.json"
 DEFAULT_APP_VERSION = "6.1.10"
 SOURCE_FILE = "res/raw/time_zone_local.json"
 

@@ -10,11 +10,11 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from eufy_home_security.cloud import const
-from eufy_home_security.cloud.api import EufyCloudApi
-from eufy_home_security.exceptions import LoginChallengeError, LoginLimitedError, ProtocolError
-from eufy_home_security.storage import SessionCache
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.cloud import const
+from anker_eufy_security.cloud.api import EufyCloudApi
+from anker_eufy_security.exceptions import LoginChallengeError, LoginLimitedError, ProtocolError
+from anker_eufy_security.storage import SessionCache
+from anker_eufy_security.testing import SYNTHETIC
 
 from .conftest import FAKE_ECC_KEY, FakeMega
 
@@ -88,7 +88,7 @@ async def test_an_empty_region_is_suspended_until_a_rescan(
         assert _requests(fake_mega, "login") == ["eu"]  # never the suspended region
 
         fake_mega.region_devices = {"us": [_station(US_STATION_SN)]}
-        with caplog.at_level(logging.INFO, logger="eufy_home_security.cloud.api"):
+        with caplog.at_level(logging.INFO, logger="anker_eufy_security.cloud.api"):
             devices = await api.async_get_devices(rescan_regions=True)
     assert {d.region for d in devices} == {"eu", "us"}
     assert api.suspended_regions() == []
@@ -118,7 +118,7 @@ async def test_an_account_with_no_devices_anywhere_is_not_asked_again(
     with aioresponses() as mock:
         fake_mega.install(mock)
         api = _api(http, cache)
-        with caplog.at_level(logging.WARNING, logger="eufy_home_security.cloud.api"):
+        with caplog.at_level(logging.WARNING, logger="anker_eufy_security.cloud.api"):
             assert await api.async_get_devices() == []
         assert "lists no devices in the eu, us region(s)" in caplog.text
         assert api.regions_to_list() == []

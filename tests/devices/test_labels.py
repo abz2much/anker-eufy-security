@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.devices.labels import (
+from anker_eufy_security.devices.labels import (
     SETTING_NAMES,
     choice_label,
     sentence_case,

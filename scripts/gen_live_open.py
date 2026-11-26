@@ -4,13 +4,13 @@ For every cached product whose thing description has ``open_live_stream``, the v
 handler runs offline (``scripts/thing_models.py`` harness, Node) once standalone and once
 behind each station kind of ``PARENT_CONNECT_TYPES``, with the input the app's live player
 gives it. Each recipe is compared with the library's builders; the file records, per
-product and connect type, the :class:`~eufy_home_security.devices.live_open.LiveOpen`
+product and connect type, the :class:`~anker_eufy_security.devices.live_open.LiveOpen`
 whose recipe equals the handler's (the keys of ``HANDLER_UNUSED_KEYS`` aside), or null
 when none does. A multi-camera open behind a HomeBase 3 must also match with the view
 fields the app's player adds there, for every layout of a two-lens camera; that run
 decides between its two forms. Where the open is a 1700 or multi-camera open behind a
 station, the handler's ``close_live_stream`` is recorded too, as the
-:class:`~eufy_home_security.devices.live_open.LiveStop` it is, or null. Runs on a
+:class:`~anker_eufy_security.devices.live_open.LiveStop` it is, or null. Runs on a
 maintainer host only; nothing at runtime executes vendor code.
 
 The table is a Python module, so reading it is an import and never file I/O on the
@@ -30,10 +30,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from eufy_home_security.devices.live_open import NVR_OPENS, LiveOpen, LiveStop
-from eufy_home_security.devices.live_view import Lens, LensView, live_view, player_input
-from eufy_home_security.devices.model_settings import product_code_of
-from eufy_home_security.devices.recipes import (
+from anker_eufy_security.devices.live_open import NVR_OPENS, LiveOpen, LiveStop
+from anker_eufy_security.devices.live_view import Lens, LensView, live_view, player_input
+from anker_eufy_security.devices.model_settings import product_code_of
+from anker_eufy_security.devices.recipes import (
     HANDLER_UNUSED_KEYS,
     PARENT_CONNECT_TYPES,
     ConnectType,
@@ -46,7 +46,7 @@ from eufy_home_security.devices.recipes import (
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CACHE = ROOT / ".work" / "cache" / "things_all"
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "_live_open_data.py"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "_live_open_data.py"
 APP_VERSION = "6.1.10"  # the app build whose handlers the cache holds
 CHANNEL = 1
 ACCOUNT = "0123456789abcdef0123456789abcdef01234567"

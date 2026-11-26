@@ -18,13 +18,13 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices.model_settings import (
     SettingControl,
     SettingKind,
     WriteContext,
     WritePath,
 )
-from eufy_home_security.devices.model_settings import _build as build_setting
+from anker_eufy_security.devices.model_settings import _build as build_setting
 
 ROOT = Path(__file__).resolve().parents[2]
 

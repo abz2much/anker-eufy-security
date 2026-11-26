@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.devices import model_settings
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices import model_settings
+from anker_eufy_security.devices.model_settings import (
     Setting,
     SettingControl,
     SettingKind,
@@ -17,7 +17,7 @@ from eufy_home_security.devices.model_settings import (
     WriteContext,
     settings_of,
 )
-from eufy_home_security.exceptions import ModelDataError
+from anker_eufy_security.exceptions import ModelDataError
 
 CHILD = WriteContext(
     standalone=False, channel=3, device_sn="T0000CHILDSN0001", station_sn="T0000STATION0001"

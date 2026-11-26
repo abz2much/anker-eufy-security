@@ -10,24 +10,24 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security import station as station_module
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.devices import device_alarm
-from eufy_home_security.devices.device_alarm import DeviceAlarm
-from eufy_home_security.devices.recipes import ConnectType
-from eufy_home_security.devices.support import Evidence, Support
-from eufy_home_security.events import AlarmChanged, DeviceAlarmChanged, Event, EventSource
-from eufy_home_security.exceptions import (
+from anker_eufy_security import station as station_module
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.devices import device_alarm
+from anker_eufy_security.devices.device_alarm import DeviceAlarm
+from anker_eufy_security.devices.recipes import ConnectType
+from anker_eufy_security.devices.support import Evidence, Support
+from anker_eufy_security.events import AlarmChanged, DeviceAlarmChanged, Event, EventSource
+from anker_eufy_security.exceptions import (
     AccountRejectedError,
     CommandNotAppliedError,
     CommandRejectedError,
     UnsupportedError,
 )
-from eufy_home_security.p2p.session import CommandOutcome, P2PCredentials, StationSession
-from eufy_home_security.p2p.xzyh import FrameType
-from eufy_home_security.station import Station
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.p2p.session import CommandOutcome, P2PCredentials, StationSession
+from anker_eufy_security.p2p.xzyh import FrameType
+from anker_eufy_security.station import Station
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 
 HB3 = CloudDevice(
     device_sn=SYNTHETIC.station_sn,
@@ -651,7 +651,7 @@ async def test_the_expiry_is_due_the_time_left_plus_the_margin(
     station: Station, fake: FakeStation, left: int
 ) -> None:
     """30 s as seconds or as milliseconds (above 1000): the off is due 30 s plus
-    :data:`~eufy_home_security.station.SIREN_EXPIRY_MARGIN_S` after the frame."""
+    :data:`~anker_eufy_security.station.SIREN_EXPIRY_MARGIN_S` after the frame."""
     await _frames(station, fake, (SIREN, 10, left, CHANNEL))
     delay = station._alarms.siren_expiry[CHANNEL].when() - asyncio.get_running_loop().time()
     assert delay == pytest.approx(30 + station_module.SIREN_EXPIRY_MARGIN_S, abs=0.5)

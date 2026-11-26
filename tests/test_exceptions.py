@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import eufy_home_security
-from eufy_home_security.exceptions import (
+import anker_eufy_security
+from anker_eufy_security.exceptions import (
     AccountRejectedError,
     CipherUnavailableError,
     CloudApiError,
@@ -24,10 +24,10 @@ from eufy_home_security.exceptions import (
     RefreshCooldownError,
     UnsupportedError,
 )
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 SN = SYNTHETIC.camera_sn
-SRC = Path(__file__).resolve().parent.parent / "src" / "eufy_home_security"
+SRC = Path(__file__).resolve().parent.parent / "src" / "anker_eufy_security"
 #: What a message names a device with: a redacted serial, or a station's log name.
 NAMING = ("redact_serial(", "self._log_name")
 
@@ -75,8 +75,8 @@ def test_an_account_refusal_is_a_rejection_with_its_code() -> None:
     assert not isinstance(err, UnsupportedError)
     assert (err.command, err.code) == (1224, -104)
     assert str(err) == "command 1224 rejected with code -104: INVALID_ACCOUNT"
-    assert eufy_home_security.AccountRejectedError is AccountRejectedError
-    assert "AccountRejectedError" in eufy_home_security.__all__
+    assert anker_eufy_security.AccountRejectedError is AccountRejectedError
+    assert "AccountRejectedError" in anker_eufy_security.__all__
 
 
 def test_an_error_lists_every_device_it_names() -> None:

@@ -8,16 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.devices import lights
-from eufy_home_security.devices.lights import LAMP_SPECS, LightBrightness, lights_from, lights_of
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices import lights
+from anker_eufy_security.devices.lights import LAMP_SPECS, LightBrightness, lights_from, lights_of
+from anker_eufy_security.devices.model_settings import (
     STANDALONE_CONTEXT,
     SettingKind,
     bundled_codes,
     settings_of,
 )
-from eufy_home_security.devices.recipes import ConnectType
-from eufy_home_security.devices.support import Support
+from anker_eufy_security.devices.recipes import ConnectType
+from anker_eufy_security.devices.support import Support
 
 _CONTEXTS: list[tuple[ConnectType | None, bool]] = [
     (None, True),

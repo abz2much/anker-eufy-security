@@ -5,7 +5,7 @@ discovery, the punch, keepalives and DRW chunks. Reassembled DRW chunks form a
 per-channel byte stream of XZYH application frames. Nothing at this layer is
 encrypted: the crypto is inside XZYH payloads ([session-crypto.md](session-crypto.md)).
 
-Code: `src/eufy_home_security/p2p/pppp.py` (datagrams),
+Code: `src/anker_eufy_security/p2p/pppp.py` (datagrams),
 `p2p/transport.py` (socket, discovery, rendezvous connect, keepalive, ACK/retransmit), `p2p/did.py`,
 `p2p/xzyh.py` (frames, reassembly).
 

@@ -10,8 +10,8 @@ from types import ModuleType
 
 import pytest
 
-from eufy_home_security.devices.app_models import APP_MODELS
-from eufy_home_security.devices.types import MODELS
+from anker_eufy_security.devices.app_models import APP_MODELS
+from anker_eufy_security.devices.types import MODELS
 
 ROOT = Path(__file__).resolve().parents[2]
 

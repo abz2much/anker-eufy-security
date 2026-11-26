@@ -7,21 +7,21 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.detection_delivery import (
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.detection_delivery import (
     DetectionDelivery,
     DetectionDeliveryReport,
     detection_delivery,
     table_mode,
 )
-from eufy_home_security.events import Event, StationConfigChanged
-from eufy_home_security.models import STATION_CHANNEL, GuardMode
-from eufy_home_security.p2p.params import ParamDump
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.station import Station, StationState
-from eufy_home_security.station_config import ModeTableView, StationConfig, build_station_config
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.events import Event, StationConfigChanged
+from anker_eufy_security.models import STATION_CHANNEL, GuardMode
+from anker_eufy_security.p2p.params import ParamDump
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.station import Station, StationState
+from anker_eufy_security.station_config import ModeTableView, StationConfig, build_station_config
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 
 HUB = CloudDevice(
     device_sn=SYNTHETIC.station_sn,

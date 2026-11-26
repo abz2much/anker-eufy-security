@@ -9,12 +9,12 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from eufy_home_security.cloud import const, crypto
-from eufy_home_security.cloud.api import EufyCloudApi
-from eufy_home_security.cloud.models import CloudInvite
-from eufy_home_security.exceptions import CloudApiError, InviteCodeError, UnsupportedError
-from eufy_home_security.storage import SessionCache
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.cloud import const, crypto
+from anker_eufy_security.cloud.api import EufyCloudApi
+from anker_eufy_security.cloud.models import CloudInvite
+from anker_eufy_security.exceptions import CloudApiError, InviteCodeError, UnsupportedError
+from anker_eufy_security.storage import SessionCache
+from anker_eufy_security.testing import SYNTHETIC
 
 from .conftest import FakeMega
 

@@ -16,32 +16,32 @@ from typing import Any
 
 import pytest
 
-import eufy_home_security.devices.ptz as devices_ptz
-import eufy_home_security.p2p.session as session_mod
-import eufy_home_security.station as station_mod
-import eufy_home_security.station.ptz as station_ptz
-from eufy_home_security import MediumState
-from eufy_home_security._logging import redact_serial
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.devices import model_settings
-from eufy_home_security.devices._live_open_data import LIVE_OPEN
-from eufy_home_security.devices._ptz_data import PTZ
-from eufy_home_security.devices._webrtc_routing_data import ROUTE_PROPERTIES
-from eufy_home_security.devices.capabilities import (
+import anker_eufy_security.devices.ptz as devices_ptz
+import anker_eufy_security.p2p.session as session_mod
+import anker_eufy_security.station as station_mod
+import anker_eufy_security.station.ptz as station_ptz
+from anker_eufy_security import MediumState
+from anker_eufy_security._logging import redact_serial
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.devices import model_settings
+from anker_eufy_security.devices._live_open_data import LIVE_OPEN
+from anker_eufy_security.devices._ptz_data import PTZ
+from anker_eufy_security.devices._webrtc_routing_data import ROUTE_PROPERTIES
+from anker_eufy_security.devices.capabilities import (
     PTZ_ACTION_NEEDS,
     PTZ_ACTIONS,
     Capability,
     DeviceProfile,
 )
-from eufy_home_security.devices.live_open import NVR_OPENS, LiveOpen, has_live_open, live_open
-from eufy_home_security.devices.live_view import (
+from anker_eufy_security.devices.live_open import NVR_OPENS, LiveOpen, has_live_open, live_open
+from anker_eufy_security.devices.live_view import (
     LENS_LIST_PARAM,
     Lens,
     LensReport,
     LensSource,
     LensView,
 )
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices.model_settings import (
     PARENTLESS_ONLY,
     SdStatusGroups,
     SettingMeaning,
@@ -50,8 +50,8 @@ from eufy_home_security.devices.model_settings import (
     settings_of,
     sort_settings,
 )
-from eufy_home_security.devices.ptz import ptz_form
-from eufy_home_security.devices.recipes import (
+from anker_eufy_security.devices.ptz import ptz_form
+from anker_eufy_security.devices.recipes import (
     MAX_PRESET_SLOTS,
     PARENT_CONNECT_TYPES,
     ConnectType,
@@ -62,13 +62,13 @@ from eufy_home_security.devices.recipes import (
     pan_tilt,
     set_picture_zoom,
 )
-from eufy_home_security.devices.sections import MODES_SECTION
-from eufy_home_security.devices.settings import Scope
-from eufy_home_security.devices.station_config_support import StationFeature
-from eufy_home_security.devices.support import Evidence, Support
-from eufy_home_security.devices.timezones import encode_zone, zone_ids
-from eufy_home_security.devices.types import MODELS, DeviceKind
-from eufy_home_security.events import (
+from anker_eufy_security.devices.sections import MODES_SECTION
+from anker_eufy_security.devices.settings import Scope
+from anker_eufy_security.devices.station_config_support import StationFeature
+from anker_eufy_security.devices.support import Evidence, Support
+from anker_eufy_security.devices.timezones import encode_zone, zone_ids
+from anker_eufy_security.devices.types import MODELS, DeviceKind
+from anker_eufy_security.events import (
     CameraBusyChanged,
     DevicesChanged,
     Event,
@@ -79,7 +79,7 @@ from eufy_home_security.events import (
     StationStateChanged,
     ZoomChanged,
 )
-from eufy_home_security.exceptions import (
+from anker_eufy_security.exceptions import (
     AccountRejectedError,
     CameraWakeError,
     CommandNotAppliedError,
@@ -97,39 +97,44 @@ from eufy_home_security.exceptions import (
     StillNotWrittenError,
     UnsupportedError,
 )
-from eufy_home_security.images import HEVC_CONTENT_TYPE, JPEG_CONTENT_TYPE, CameraImage, ImageSource
-from eufy_home_security.models import STATION_CHANNEL, GuardMode, ValueSource
-from eufy_home_security.network import HostSource
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p.did import static_key
-from eufy_home_security.p2p.media import (
+from anker_eufy_security.images import (
+    HEVC_CONTENT_TYPE,
+    JPEG_CONTENT_TYPE,
+    CameraImage,
+    ImageSource,
+)
+from anker_eufy_security.models import STATION_CHANNEL, GuardMode, ValueSource
+from anker_eufy_security.network import HostSource
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p.did import static_key
+from anker_eufy_security.p2p.media import (
     MediaFrame,
     MediaKeyType,
     MediaKind,
     StillFormat,
     VideoCodec,
 )
-from eufy_home_security.p2p.messages import HISTORY_RECORD_COUNTER, STANDALONE_RECEIPT_LEN
-from eufy_home_security.p2p.params import ParamDump
-from eufy_home_security.p2p.session import (
+from anker_eufy_security.p2p.messages import HISTORY_RECORD_COUNTER, STANDALONE_RECEIPT_LEN
+from anker_eufy_security.p2p.params import ParamDump
+from anker_eufy_security.p2p.session import (
     PARAM_SETTLE,
     CommandOutcome,
     P2PCredentials,
     RecipeReply,
     StationSession,
 )
-from eufy_home_security.p2p.session.media_stream import MediaStream
-from eufy_home_security.p2p.xzyh import FrameType
-from eufy_home_security.station import (
+from anker_eufy_security.p2p.session.media_stream import MediaStream
+from anker_eufy_security.p2p.xzyh import FrameType
+from anker_eufy_security.station import (
     Station,
     StationState,
     _still_time,
     station_block_aliases,
     station_channels,
 )
-from eufy_home_security.storage import MemoryStore, SessionCache
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import (
+from anker_eufy_security.storage import MemoryStore, SessionCache
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import (
     MEDIA_GOP,
     MEDIA_KEYFRAME,
     MEDIA_RECORDING_PFRAME,
@@ -993,7 +998,7 @@ def test_two_cloud_devices_on_one_channel_leave_its_serial_unknown(
     station = Station(base.device, base.session, sub_devices=[_camera(CAM_A, 0), _camera(CAM_B, 0)])
     dump = ParamDump()
     dump.ingest({"params": [{"dev_type": 0, "param_type": 1101, "param_value": "80"}]})
-    with caplog.at_level("WARNING", logger="eufy_home_security.station"):
+    with caplog.at_level("WARNING", logger="anker_eufy_security.station"):
         first = station._state(dump)
         station._state(dump)
     assert (first.devices[0].serial, first.devices[0].serial_source) == (None, None)
@@ -2561,7 +2566,7 @@ async def test_a_camera_image_lookup_that_finds_nothing_says_what_the_history_he
     today = int(datetime.now().astimezone().date().strftime("%Y%m%d"))
     fake.rows = _hb2_shaped_rows(today, path_field, ext)
     with (
-        caplog.at_level(logging.DEBUG, logger="eufy_home_security.station"),
+        caplog.at_level(logging.DEBUG, logger="anker_eufy_security.station"),
         pytest.raises(RecordNotFoundError) as caught,
     ):
         await station.async_camera_image(SYNTHETIC.camera_sn, source=source, days=1)
@@ -2603,7 +2608,7 @@ async def test_a_repeated_fruitless_camera_image_lookup_is_logged_again_only_whe
     fake.rows = [
         {"record_id": today * HISTORY_RECORD_COUNTER + 1, "device_sn": SYNTHETIC.camera_sn}
     ]
-    with caplog.at_level(logging.DEBUG, logger="eufy_home_security.station"):
+    with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.station"):
         for _ in range(2):
             with pytest.raises(RecordNotFoundError, match="1 record"):
                 await station.async_camera_image(SYNTHETIC.camera_sn, days=1)
@@ -3579,7 +3584,7 @@ async def test_a_camera_whose_station_reports_its_lens_list_opens_every_lens_sta
     hub = Station(station.device, station.session, sub_devices=[camera])
     if read_before:
         await hub.async_update()
-    with caplog.at_level(logging.DEBUG, logger="eufy_home_security.station"):
+    with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.station"):
         async with await hub.async_open_live(camera.device_sn) as stream:
             await anext(aiter(stream))
     (payload,) = fake.live_open_payloads
@@ -4400,7 +4405,7 @@ def test_a_refreshed_station_firmware_drops_the_settings_it_gates(
 ) -> None:
     """A paired device's per-mode settings follow the station's firmware gate: a record
     with another firmware drops the memo, the same firmware keeps it."""
-    from eufy_home_security.devices import station_config_support  # noqa: PLC0415
+    from anker_eufy_security.devices import station_config_support  # noqa: PLC0415
 
     gate = "3.9.0.0"
     monkeypatch.setattr(

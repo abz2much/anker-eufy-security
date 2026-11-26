@@ -21,26 +21,26 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from eufy_home_security._logging import LogThrottle
-from eufy_home_security.cloud import const
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.exceptions import (
+from anker_eufy_security._logging import LogThrottle
+from anker_eufy_security.cloud import const
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.exceptions import (
     CommunicationError,
     DeviceTimeoutError,
     MissingDependencyError,
     UnsupportedError,
 )
-from eufy_home_security.mqtt import client as client_module
-from eufy_home_security.mqtt.client import EufyMqttClient
-from eufy_home_security.mqtt.envelope import (
+from anker_eufy_security.mqtt import client as client_module
+from anker_eufy_security.mqtt.client import EufyMqttClient
+from anker_eufy_security.mqtt.envelope import (
     CMD_DOWNLINK_TRANS,
     CMD_STATUS_REQUEST_NO_ACK,
     MqttMessage,
     request_topic,
     response_topic,
 )
-from eufy_home_security.mqtt.selection import device_key
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.mqtt.selection import device_key
+from anker_eufy_security.testing import SYNTHETIC
 
 from .conftest import (
     CAMERA,
@@ -1083,7 +1083,7 @@ def test_the_client_without_aiomqtt_raises_naming_the_extra(
     monkeypatch: pytest.MonkeyPatch, rig: Rig
 ) -> None:
     monkeypatch.setitem(sys.modules, "aiomqtt", None)
-    with pytest.raises(MissingDependencyError, match=r"eufy-home-security\[mqtt\]") as caught:
+    with pytest.raises(MissingDependencyError, match=r"anker-eufy-security\[mqtt\]") as caught:
         EufyMqttClient(rig.eufy.cloud)
     assert caught.value.extra == "mqtt"
 
@@ -1091,6 +1091,6 @@ def test_the_client_without_aiomqtt_raises_naming_the_extra(
 def test_the_package_imports_without_aiomqtt() -> None:
     code = (
         "import sys; sys.modules['aiomqtt'] = None; "
-        "import eufy_home_security, eufy_home_security.mqtt, eufy_home_security.mqtt.client"
+        "import anker_eufy_security, anker_eufy_security.mqtt, anker_eufy_security.mqtt.client"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=60)

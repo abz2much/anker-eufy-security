@@ -1,0 +1,325 @@
+"""Render the device support matrix as Markdown, from the device catalog and the
+bundled per-model settings files."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Sequence
+
+from ._model_names_data import MODEL_NAMES
+from .capabilities import GUARD_MODE_EVIDENCE, PROFILES, Capability
+from .model_settings import (
+    Setting,
+    SettingKind,
+    Value,
+    bundled_codes,
+    garage_params,
+    lock_state_read,
+    settings_of,
+)
+from .station_config_support import (
+    StationFeature,
+    config_support,
+    cross_camera_intervals,
+    min_firmware,
+    mode_table_params,
+    mode_table_storage,
+    restart_command,
+    station_config_models,
+)
+from .support import Evidence, Support
+from .types import MODELS
+
+_LEGEND = {
+    Support.VERIFIED: "proven on real hardware (a live capture, or a live write plus read-back)",
+    Support.DECLARED: "present in the app's own code or enums, not yet proven on hardware",
+    Support.UNKNOWN: "seen but not understood, or known not to work",
+}
+
+
+def _cell(text: str) -> str:
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _table(header: Sequence[str], rows: Iterable[Sequence[str]]) -> list[str]:
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "|" + "|".join("---" for _ in header) + "|",
+    ]
+    lines.extend("| " + " | ".join(_cell(c) for c in row) + " |" for row in rows)
+    return lines
+
+
+def _source(evidence: Evidence) -> str:
+    return f"{evidence.source} ({evidence.note})" if evidence.note else evidence.source
+
+
+def _value(value: Value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _domain(setting: Setting) -> str:
+    """Enum values, flags members, or ``min..max step s`` for a range; ``-`` otherwise."""
+    if setting.kind is SettingKind.FLAGS:
+        return "any of " + ", ".join(setting.flags)
+    if setting.kind is SettingKind.ENUM and setting.values:
+        return ", ".join(_value(v) for v in setting.values)
+    if setting.minimum is not None and setting.maximum is not None:
+        step = "" if setting.step is None else f" step {_value(setting.step)}"
+        return f"{_value(setting.minimum)}..{_value(setting.maximum)}{step}"
+    return "-"
+
+
+def _settings_counts(code: str) -> tuple[int, int]:
+    """(writable, read-only) settings of ``code``'s settings file."""
+    settings = settings_of(code).values()
+    writable = sum(1 for s in settings if s.writable)
+    return writable, len(settings) - writable
+
+
+def _settings_title(code: str) -> str:
+    model = MODELS.get(code)
+    return f"Settings of {code} {model.name}" if model is not None else f"Settings of {code}"
+
+
+def _anchor(title: str) -> str:
+    """The Markdown heading anchor of ``title``."""
+    kept = "".join(c for c in title.lower() if c.isalnum() or c in " -_")
+    return kept.replace(" ", "-")
+
+
+def _settings_section(code: str) -> list[str]:
+    """One model's settings file: heading, ``rw N / ro M`` and a row per setting by key."""
+    settings = settings_of(code)
+    rw, ro = _settings_counts(code)
+    out = ["", f"### {_settings_title(code)}", "", f"rw {rw} / ro {ro}", ""]
+    out += _table(
+        ("key", "kind", "values or range", "unit", "writable", "control", "labels"),
+        (
+            (
+                f"`{s.key}`",
+                s.kind.value,
+                _domain(s),
+                s.unit.value if s.unit is not None else "-",
+                "yes" if s.writable else "no",
+                s.control.value if s.control is not None else "-",
+                ", ".join(f"{_value(v)}={title}" for v, title in s.labels.items()) or "-",
+            )
+            for _, s in sorted(settings.items())
+        ),
+    )
+    return out
+
+
+def _station_config_section() -> list[str]:
+    """Per station model, the grade of each station configuration feature."""
+    models = station_config_models()
+    out = [
+        "",
+        "## Station configuration",
+        "",
+        "Which station configuration features each station model offers "
+        "(`Station.config_support`, `devices.station_config_support`). *alarm* marks a "
+        "feature whose writes change the alarm: a UI confirms them. Models the eufy app "
+        "names without a thing description on record are *unknown* throughout.",
+        "",
+    ]
+    out += _table(
+        ("feature", "alarm", *models),
+        (
+            (
+                feature.value,
+                "yes" if feature.alarm_affecting else "no",
+                *(config_support(code, feature).support for code in models),
+            )
+            for feature in StationFeature
+        ),
+    )
+    for code in models:
+        model = MODELS.get(code)
+        title = f"{code} {model.name}" if model is not None else code
+        out += ["", f"### Station configuration of {title}", ""]
+        storage = mode_table_storage(code)
+        if storage is not None:
+            params = ", ".join(
+                f"{mode.name.lower()} {param}" for mode, param in mode_table_params(code).items()
+            )
+            out += [f"Mode tables: {storage.value} ({params})", ""]
+        intervals = cross_camera_intervals(code)
+        if intervals:
+            out += [f"Cross-camera tracking times (s): {', '.join(map(str, intervals))}", ""]
+        restart = restart_command(code)
+        if restart is not None:
+            cmd, sub = restart
+            out += [f"Restart: {cmd}" + ("" if sub is None else f"/{sub}"), ""]
+        out += _table(
+            ("feature", "support", "min firmware", "source"),
+            (
+                (
+                    feature.value,
+                    config_support(code, feature).support,
+                    min_firmware(code, feature) or "-",
+                    _source(config_support(code, feature)),
+                )
+                for feature in StationFeature
+            ),
+        )
+    return out
+
+
+def _condition(pos: int, text: str) -> str:
+    if len(text) == 1:
+        return f"character {pos} is `{text}`"
+    return f"characters {pos}-{pos + len(text) - 1} are `{text}`"
+
+
+def _unit_names_section() -> list[str]:
+    """The serial rules that give single units another name than their model's."""
+    out = [
+        "",
+        "Model names come in three steps: the product's own name table where it names the"
+        " prefix, as the eufy app shows it; else, as the library's choice, the newest name"
+        " table that names the prefix; else the name derived from the app's model constant."
+        " A product whose thing description declares no `device_model` is named the same"
+        " way, though the app shows no such name for it. Some units are named by their"
+        " serial (`product_name`): the first rule of the unit's product that matches wins"
+        " (serial characters count from 0).",
+        "",
+    ]
+    out += _table(
+        ("product", "serial", "name"),
+        (
+            (code, " and ".join(_condition(pos, text) for pos, text in conditions), name)
+            for code, (_base, rules, _source) in sorted(MODEL_NAMES.items())
+            for conditions, name in rules
+        ),
+    )
+    return out
+
+
+def _doors_section() -> list[str]:
+    """The models whose settings file carries a ``lock`` or a ``garage`` block."""
+    rows = []
+    for code in bundled_codes():
+        lock, garage = lock_state_read(code), garage_params(code)
+        if lock is not None:
+            contexts = ", ".join(f"{name} {p}" for name, p in sorted(lock.contexts.items()))
+            params = f"{lock.param}" + (f" ({contexts})" if contexts else "")
+            rows.append((code, MODELS[code].name if code in MODELS else code, "lock", params))
+        if garage is not None:
+            params = (
+                f"state {garage.state_param}, motors {garage.motor_param}, sensors "
+                f"{garage.sensor_param}; command {garage.cmd} / {garage.sub_cmd}"
+            )
+            name = MODELS[code].name if code in MODELS else code
+            rows.append((code, name, "garage_door", params))
+    out = [
+        "",
+        "## Locks and garage doors",
+        "",
+        "Lock state (`lock`: the lock-state parameter, behind a station and per other"
+        " context) and garage doors (`garage_door`: the door-state, motor and sensor"
+        " parameters and the door command), *declared (eufy app)* from each model's"
+        " settings file. No lock command is sent.",
+        "",
+    ]
+    return out + _table(("model", "name", "capability", "parameters"), rows)
+
+
+def render_support_matrix() -> str:
+    """The whole support matrix, deterministically ordered."""
+    out = [
+        "# Device support matrix",
+        "",
+        "<!-- Generated by scripts/gen_device_matrix.py from anker_eufy_security.devices;"
+        " do not edit. -->",
+        "",
+        "Support legend (models, capabilities and guard modes):",
+        "",
+    ]
+    out.extend(f"- **{status}**: {meaning}" for status, meaning in _LEGEND.items())
+    out += ["", "## Models", ""]
+    out += _table(
+        ("model", "name", "kind", "cloud device_type", "support", "source"),
+        (
+            (
+                m.model,
+                m.name,
+                m.kind,
+                "" if m.cloud_device_type is None else str(m.cloud_device_type),
+                m.evidence.support,
+                _source(m.evidence),
+            )
+            for m in sorted(MODELS.values(), key=lambda m: m.model)
+        ),
+    )
+    out += _unit_names_section()
+    out.append("")
+    out += [
+        "Each table below is a model's own profile. For every catalogued model, with or"
+        " without one, `profile_for_serial` adds `live_stream`, `live_keyframe` and the"
+        " pan/tilt/zoom capabilities as *declared* where the model's handler sends what the"
+        " library sends (per station: `Station.live_support`, `Station.ptz_support`), and"
+        " `doorbell_ring` as *declared* for a video doorbell or a video smart lock"
+        " (`ring_evidence`), and `lock` and `garage_door` as *declared* where the model's"
+        " settings file carries the data ([Locks and garage doors](#locks-and-garage-doors))."
+        " Any other capability of a model without a profile is *unknown*.",
+    ]
+    for model in sorted(PROFILES):
+        profile = PROFILES[model]
+        out += ["", f"## {model} {MODELS[model].name}", ""]
+        out += _table(
+            ("capability", "support", "source"),
+            [
+                *(
+                    (cap, profile.capabilities[cap].support, _source(profile.capabilities[cap]))
+                    for cap in Capability
+                    if cap in profile.capabilities
+                ),
+                *(
+                    (f"preset action {action}", evidence.support, _source(evidence))
+                    for action, evidence in profile.ptz_actions.items()
+                ),
+            ],
+        )
+        rw, ro = _settings_counts(model)
+        out += [
+            "",
+            f"Settings: rw {rw} / ro {ro}, see [{_settings_title(model)}](#{_anchor(_settings_title(model))})",
+            "",
+        ]
+        if profile.kind_markers:
+            markers = ", ".join(str(pid) for pid in sorted(profile.kind_markers))
+            out += [f"Kind markers (a block without a known serial): {markers}", ""]
+        out += _table(
+            ("parameter", "id"),
+            ((name, str(pid)) for name, pid in sorted(profile.params.items())),
+        )
+    out += ["", "## Guard modes", ""]
+    out += _table(
+        ("mode", "code", "support", "source"),
+        (
+            (mode.name.lower(), str(int(mode)), evidence.support, _source(evidence))
+            for mode, evidence in sorted(GUARD_MODE_EVIDENCE.items())
+        ),
+    )
+    out += ["", "Modes not listed carry no recorded evidence."]
+    out += _doors_section()
+    out += _station_config_section()
+    out += [
+        "",
+        "## Settings",
+        "",
+        "Each model's settings as its bundled settings file lists them: *rw* settings the "
+        "library can write, *ro* settings it only reads or lists. *control* is the control "
+        "a UI offers for a writable setting. *labels* are the app's titles of the values.",
+        "",
+        "The per-mode settings (`alarm_delay_<mode>`, `leaving_delay_<mode>` and "
+        "`<scope>_action_<mode>`) are not model data: they apply to every camera and "
+        "sensor paired to a station and are listed with that device's settings.",
+    ]
+    for code in bundled_codes():
+        out += _settings_section(code)
+    out.append("")
+    return "\n".join(out)

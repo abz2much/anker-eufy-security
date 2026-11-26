@@ -11,8 +11,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from eufy_home_security.cloud import const, crypto
-from eufy_home_security.exceptions import ProtocolError
+from anker_eufy_security.cloud import const, crypto
+from anker_eufy_security.exceptions import ProtocolError
 
 
 def test_preset_roundtrip() -> None:

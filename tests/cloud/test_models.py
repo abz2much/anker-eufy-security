@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from eufy_home_security.cloud.models import (
+from anker_eufy_security.cloud.models import (
     CACHED_DEVICE_FIELDS,
     CACHED_MEMBER_FIELDS,
     CipherRecord,
@@ -20,10 +20,10 @@ from eufy_home_security.cloud.models import (
     parse_faces,
     security_device_entry,
 )
-from eufy_home_security.devices import types
-from eufy_home_security.devices._model_names_data import MODEL_NAMES
-from eufy_home_security.exceptions import CloudApiError, EmptyResponseError, ProtocolError
-from eufy_home_security.testing import SYNTHETIC, FakeStation, security_device, security_station
+from anker_eufy_security.devices import types
+from anker_eufy_security.devices._model_names_data import MODEL_NAMES
+from anker_eufy_security.exceptions import CloudApiError, EmptyResponseError, ProtocolError
+from anker_eufy_security.testing import SYNTHETIC, FakeStation, security_device, security_station
 
 
 def test_from_api_lifts_the_owner_id_out_of_member() -> None:

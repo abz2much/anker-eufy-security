@@ -10,23 +10,23 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security import station as station_module
-from eufy_home_security.devices.station_config_support import StationFeature
-from eufy_home_security.devices.support import Evidence, Support
-from eufy_home_security.exceptions import (
+from anker_eufy_security import station as station_module
+from anker_eufy_security.devices.station_config_support import StationFeature
+from anker_eufy_security.devices.support import Evidence, Support
+from anker_eufy_security.exceptions import (
     CommandNotAppliedError,
     ConfigChangedError,
     ModeInUseError,
     UnsupportedError,
 )
-from eufy_home_security.models import GuardMode, ValueSource
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p.session import CommandOutcome, P2PCredentials, StationSession
-from eufy_home_security.p2p.station_config_codecs import Schedule, ScheduleSlot, Weekday
-from eufy_home_security.station import Station
-from eufy_home_security.station_config import ModeInfo
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.models import GuardMode, ValueSource
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p.session import CommandOutcome, P2PCredentials, StationSession
+from anker_eufy_security.p2p.station_config_codecs import Schedule, ScheduleSlot, Weekday
+from anker_eufy_security.station import Station
+from anker_eufy_security.station_config import ModeInfo
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 from tests.test_station_config import (
     CAMERA,
     STATION,

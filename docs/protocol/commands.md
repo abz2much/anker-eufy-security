@@ -4,9 +4,9 @@ All commands in this file travel on DRW channel 0 inside an established session
 ([session-crypto.md](session-crypto.md)). Legacy scalar settings use the ECB frame
 described there. Everything else is a **DeviceMsgBean** in a GCM `0x0546` frame.
 
-Code: `src/eufy_home_security/p2p/messages.py` (builders, decoders, result codes),
+Code: `src/anker_eufy_security/p2p/messages.py` (builders, decoders, result codes),
 `p2p/params.py` (dump model), `p2p/session/` (send and confirm),
-`src/eufy_home_security/devices/` (command names, per-model settings).
+`src/anker_eufy_security/devices/` (command names, per-model settings).
 
 ## DeviceMsgBean
 
@@ -401,7 +401,7 @@ chunks:
   entries.
 - **Keys the library does not read (library).** Any other top-level key is kept as
   received (`ParamDump.unread`, `ParamDump.received`), logged once per session at INFO
-  and listed in `StationSession.unread_dump_keys`; `eufy-security status --received`
+  and listed in `StationSession.unread_dump_keys`; `anker-eufy-security status --received`
   prints the dump's objects as decrypted.
 - **Group by `dev_type`.** The same `param_type` appears once per device (three
   batteries, for example), so flattening loses data.
@@ -458,7 +458,7 @@ chunks:
 | 1609 | motion sensor | raw PIR sensitivity; the handler maps only 0–2 |
 | 3100 | camera | 30-day battery history |
 
-Names for every id: `src/eufy_home_security/devices/command_types.py`.
+Names for every id: `src/anker_eufy_security/devices/command_types.py`.
 
 ## Event database (1306) **[verified]**
 

@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/eufy-home-security
+      url: https://pypi.org/p/anker-eufy-security
     permissions:
       id-token: write   # PyPI trusted publishing and attestation signing; no API token
     steps:

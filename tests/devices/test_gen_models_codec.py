@@ -394,7 +394,7 @@ def test_read_without_write_samples_is_null_without_note() -> None:
     assert codec.infer_read("enum", []) == (None, None)
 
 
-MODELS = ROOT / "src" / "eufy_home_security" / "devices" / "data" / "models"
+MODELS = ROOT / "src" / "anker_eufy_security" / "devices" / "data" / "models"
 
 
 def test_generated_t8160_read_codecs_invert_the_write_maps() -> None:

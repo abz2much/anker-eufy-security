@@ -7,12 +7,12 @@ from types import MappingProxyType
 
 import pytest
 
-from eufy_home_security import devices
-from eufy_home_security.devices import settings
-from eufy_home_security.devices._device_alarm_data import DEVICE_ALARMS
-from eufy_home_security.devices.device_alarm import device_alarms
-from eufy_home_security.devices.recipes import ConnectType
-from eufy_home_security.devices.settings import (
+from anker_eufy_security import devices
+from anker_eufy_security.devices import settings
+from anker_eufy_security.devices._device_alarm_data import DEVICE_ALARMS
+from anker_eufy_security.devices.device_alarm import device_alarms
+from anker_eufy_security.devices.recipes import ConnectType
+from anker_eufy_security.devices.settings import (
     DOORBELL_TYPE_ACTIONS,
     DUAL_VIEW,
     MODE_ACTION_ALARM_AFFECTING,
@@ -31,10 +31,10 @@ from eufy_home_security.devices.settings import (
     report_value,
     scope_for_kind,
 )
-from eufy_home_security.devices.types import MODELS, DeviceKind
-from eufy_home_security.exceptions import UnsupportedError
-from eufy_home_security.models import GuardMode
-from eufy_home_security.p2p.mode_actions import (
+from anker_eufy_security.devices.types import MODELS, DeviceKind
+from anker_eufy_security.exceptions import UnsupportedError
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.p2p.mode_actions import (
     ACTION_FLAGS,
     FIELD_PARAMS,
     MODE_ACTION_CLEARS,
@@ -390,7 +390,7 @@ def test_mode_table_setting_looks_up_a_mode_table_key() -> None:
 
 
 def test_settings_carry_no_tiers_or_catalogue() -> None:
-    from eufy_home_security.devices import settings, support  # noqa: PLC0415
+    from anker_eufy_security.devices import settings, support  # noqa: PLC0415
 
     for name in ("Tier", "TIER_ORDER", "rank", "tier_for_support"):
         assert not hasattr(support, name), name

@@ -7,9 +7,9 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from eufy_home_security.exceptions import ProtocolError
-from eufy_home_security.p2p.media import MediaFrame, MediaKind
-from eufy_home_security.p2p.pacing import PACE_MAX_STEP_MS, FramePacer
+from anker_eufy_security.exceptions import ProtocolError
+from anker_eufy_security.p2p.media import MediaFrame, MediaKind
+from anker_eufy_security.p2p.pacing import PACE_MAX_STEP_MS, FramePacer
 
 
 def _video(ms: int) -> MediaFrame:

@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.cloud.models import MqttCertificate
-from eufy_home_security.exceptions import EufySecurityError, ProtocolError
-from eufy_home_security.mqtt import tls
-from eufy_home_security.testing.mqtt import MqttTestPki, make_mqtt_pki
+from anker_eufy_security.cloud.models import MqttCertificate
+from anker_eufy_security.exceptions import EufySecurityError, ProtocolError
+from anker_eufy_security.mqtt import tls
+from anker_eufy_security.testing.mqtt import MqttTestPki, make_mqtt_pki
 
 
 @pytest.fixture(scope="module")

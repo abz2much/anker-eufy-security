@@ -20,7 +20,7 @@ from typing import Any, cast
 
 import pytest
 
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices.model_settings import (
     Setting,
     SettingKind,
     Value,
@@ -29,12 +29,12 @@ from eufy_home_security.devices.model_settings import (
     WritePath,
     settings_of,
 )
-from eufy_home_security.devices.recipes import ConnectType
-from eufy_home_security.exceptions import UnsupportedError
-from eufy_home_security.p2p.messages import ecb_field_value, is_ecb_scalar
+from anker_eufy_security.devices.recipes import ConnectType
+from anker_eufy_security.exceptions import UnsupportedError
+from anker_eufy_security.p2p.messages import ecb_field_value, is_ecb_scalar
 
 ROOT = Path(__file__).resolve().parents[2]
-MODELS_DIR = ROOT / "src" / "eufy_home_security" / "devices" / "data" / "models"
+MODELS_DIR = ROOT / "src" / "anker_eufy_security" / "devices" / "data" / "models"
 REFERENCE = json.loads(
     (ROOT / "tests" / "fixtures" / "models_v1_reference.json").read_text(encoding="utf-8")
 )

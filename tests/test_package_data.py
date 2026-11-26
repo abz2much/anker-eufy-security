@@ -16,8 +16,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT_MEMBERS = (
-    "eufy_home_security/devices/data/models/T8160.json",
-    "eufy_home_security/devices/data/models/T8170.json",
+    "anker_eufy_security/devices/data/models/T8160.json",
+    "anker_eufy_security/devices/data/models/T8170.json",
 )
 
 

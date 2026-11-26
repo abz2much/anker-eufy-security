@@ -10,7 +10,7 @@ from types import ModuleType
 
 import pytest
 
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 ROOT = Path(__file__).resolve().parents[2]
 

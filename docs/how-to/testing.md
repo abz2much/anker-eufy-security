@@ -1,6 +1,6 @@
 # Testing an integration against the real library
 
-`eufy_home_security.testing` ships supported test doubles, so code built on the library
+`anker_eufy_security.testing` ships supported test doubles, so code built on the library
 (a Home Assistant integration) can test end to end against the real client instead of
 mocking it. The library itself never imports this package; import it from a test suite
 only.
@@ -23,7 +23,7 @@ session serves a poll, a snapshot and an arm, and a push reaches an entity.
 ## A test
 
 ```python
-from eufy_home_security.testing import (
+from anker_eufy_security.testing import (
     SYNTHETIC,
     FakeCloud,
     FakeStation,
@@ -113,8 +113,8 @@ async def test_warm_start_needs_no_cloud() -> None:
   ```python
   from datetime import time
 
-  from eufy_home_security import GuardMode, ScheduleSlot, Weekday
-  from eufy_home_security.testing import mode_list_params, schedule_params
+  from anker_eufy_security import GuardMode, ScheduleSlot, Weekday
+  from anker_eufy_security.testing import mode_list_params, schedule_params
 
   station.set_mode_list({GuardMode.CUSTOM_1: "Night watch"}, icons={GuardMode.CUSTOM_1: 6})
   station.set_schedule(
@@ -161,7 +161,7 @@ attempts. A test that meets such a wait on purpose shortens it.
   ```
 
 - **One at a time:** `monkeypatch.setattr` on the module that defines the constant
-  (`eufy_home_security.p2p.session.COMMAND_TIMEOUT`, `…p2p.pppp.LAN_DISCOVERY_TIMEOUT`,
+  (`anker_eufy_security.p2p.session.COMMAND_TIMEOUT`, `…p2p.pppp.LAN_DISCOVERY_TIMEOUT`,
   `…p2p.broadcast.CAPTURE_START_TIMEOUT`, `…station.READBACK_DELAY`), never on a name
   imported elsewhere. Every call with a `timeout=None` default reads its constant there
   at call time, also when a caller such as `Station.async_set_guard_mode` passes no

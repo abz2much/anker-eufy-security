@@ -3,13 +3,13 @@ requires = ["uv_build>=0.11,<0.13"]
 build-backend = "uv_build"
 
 [project]
-name = "eufy-home-security"
-version = "0.4.19"
+name = "anker-eufy-security"
+version = "0.1.0"
 description = "Asyncio client for eufy Security: local P2P to the HomeBase, the eufy cloud, and push events."
 readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE"]
-authors = [{ name = "Alar Aun" }]
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Alar Aun" }, { name = "abz2much" }]
 requires-python = ">=3.13"
 keywords = ["eufy", "eufy-security", "eufycam", "homebase", "home-assistant", "asyncio", "p2p"]
 classifiers = [
@@ -37,20 +37,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The MQTT transport (eufy's broker for Wi-Fi locks): eufy_home_security.mqtt.client.
+# The MQTT transport (eufy's broker for Wi-Fi locks): anker_eufy_security.mqtt.client.
 # Bounded: the client reaches aiomqtt's paho client; 2.2 is the first release that runs
 # on paho-mqtt 2.1 (Home Assistant's pin) without deprecation warnings.
 mqtt = ["aiomqtt>=2.2,<3"]
 
 [project.scripts]
-eufy-security = "eufy_home_security.cli:main"
+anker-eufy-security = "anker_eufy_security.cli:main"
 
 [project.urls]
-Source = "https://github.com/alaraun/python-eufy-home-security"
-Issues = "https://github.com/alaraun/python-eufy-home-security/issues"
-Changelog = "https://github.com/alaraun/python-eufy-home-security/blob/main/CHANGELOG.md"
-Documentation = "https://github.com/alaraun/python-eufy-home-security/tree/main/docs"
-Funding = "https://ko-fi.com/alaraun"
+Source = "https://github.com/abz2much/anker-eufy-security"
+Issues = "https://github.com/abz2much/anker-eufy-security/issues"
+Changelog = "https://github.com/abz2much/anker-eufy-security/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/abz2much/anker-eufy-security/tree/main/docs"
 
 [dependency-groups]
 dev = [
@@ -68,7 +67,7 @@ dev = [
 ]
 
 [tool.uv.build-backend]
-module-name = "eufy_home_security"
+module-name = "anker_eufy_security"
 # The sdist is the wheel's build input plus CHANGELOG; tests and docs need the repository
 # (vendor corpus, scripts/, git), so they are not shipped.
 source-include = ["CHANGELOG.md"]
@@ -97,7 +96,7 @@ max-complexity = 20
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S603", "PLR2004", "T20", "N802", "ASYNC110"]
-"src/eufy_home_security/cli/**" = ["T20"]
+"src/anker_eufy_security/cli/**" = ["T20"]
 "scripts/**" = ["T20", "S603", "S607"]
 
 [tool.ruff.format]
@@ -126,7 +125,7 @@ filterwarnings = ["error"]
 
 [tool.coverage.run]
 branch = true
-source = ["eufy_home_security"]
+source = ["anker_eufy_security"]
 
 [tool.coverage.report]
 show_missing = true

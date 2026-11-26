@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.devices.versions import (
+from anker_eufy_security.devices.versions import (
     remote_version_at_least,
     version_bigger_than,
     version_equals,

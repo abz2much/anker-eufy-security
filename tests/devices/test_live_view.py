@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices.live_view import (
+from anker_eufy_security.devices.live_view import (
     PIP_CORD_DEFAULT,
     Lens,
     LensView,
@@ -17,8 +17,8 @@ from eufy_home_security.devices.live_view import (
     parse_lenses,
     player_input,
 )
-from eufy_home_security.devices.recipes import StitchMode
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.devices.recipes import StitchMode
+from anker_eufy_security.testing import SYNTHETIC
 
 GOLDEN = Path(__file__).resolve().parent.parent / "fixtures" / "thing_models" / "T8172.json"
 KEY = "0123456789ABCDEF" * 16

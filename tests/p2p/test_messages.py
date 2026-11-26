@@ -16,17 +16,17 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from eufy_home_security.exceptions import ProtocolError, UnsupportedError
-from eufy_home_security.models import GuardMode
-from eufy_home_security.p2p import _json, crypto, messages
-from eufy_home_security.p2p.messages import (
+from anker_eufy_security.exceptions import ProtocolError, UnsupportedError
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.p2p import _json, crypto, messages
+from anker_eufy_security.p2p.messages import (
     CMD_SET_TONE_FILE,
     DB_EVENT_COUNT,
     event_count_payload,
     tone_file_payload,
 )
-from eufy_home_security.p2p.xzyh import MAGIC, Frame, FrameCipher, FrameType
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.p2p.xzyh import MAGIC, Frame, FrameCipher, FrameType
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def test_conn_init_request_is_the_empty_seq1_flags_ff_frame() -> None:

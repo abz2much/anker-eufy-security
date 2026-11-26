@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices.model_settings import (
     Setting,
     SettingKind,
     bundled_codes,
@@ -12,16 +12,16 @@ from eufy_home_security.devices.model_settings import (
     settings_of,
     sort_settings,
 )
-from eufy_home_security.devices.recipes import ConnectType
-from eufy_home_security.devices.sections import (
+from anker_eufy_security.devices.recipes import ConnectType
+from anker_eufy_security.devices.sections import (
     MODES_SECTION,
     OTHER_SECTION,
     SETTING_SECTIONS,
     SettingSection,
     setting_section,
 )
-from eufy_home_security.devices.settings import Scope
-from eufy_home_security.exceptions import UnsupportedError
+from anker_eufy_security.devices.settings import Scope
+from anker_eufy_security.exceptions import UnsupportedError
 
 IDS = {s.id for s in SETTING_SECTIONS}
 # The Home Assistant camera card's tab ids and some keys each tab holds.

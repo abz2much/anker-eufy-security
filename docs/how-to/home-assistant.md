@@ -1,6 +1,6 @@
 # Building a Home Assistant integration
 
-`eufy_home_security` is shaped for Home Assistant: it imports nothing from HA, takes
+`anker_eufy_security` is shaped for Home Assistant: it imports nothing from HA, takes
 an injected `aiohttp` session and a pluggable `Store`, raises typed errors, and pushes
 state changes instead of only being polled. This is how a config-entry integration
 maps onto it.
@@ -15,7 +15,7 @@ hardware. That covers the cloud, the stations, the cache, rate limits, identifie
 which account serves which station.
 
 - **Look for the library function first.** Before writing logic in the integration,
-  check the public API (`eufy_home_security.__all__`) and these docs.
+  check the public API (`anker_eufy_security.__all__`) and these docs.
 - **Missing or awkward? Change the library** instead of working around it: add the
   API to the library, with a test. How that change travels is up to the setup:
   - developing both locally (the library installed from a local checkout): make the
@@ -40,7 +40,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.util.hass_dict import HassKey
-from eufy_home_security import EufySecurity, StationClaims
+from anker_eufy_security import EufySecurity, StationClaims
 
 CLAIMS: HassKey[StationClaims] = HassKey(f"{DOMAIN}_claims")
 
@@ -267,7 +267,7 @@ When the user removes the entry, call `async_forget_account` in `async_remove_en
 and never delete the store:
 
 ```python
-from eufy_home_security import async_forget_account
+from anker_eufy_security import async_forget_account
 
 
 async def async_remove_entry(hass, entry):
@@ -659,8 +659,8 @@ The library describes each station's path; the integration only presents it:
   pinned port's rule would state: say it once); re-decide it when a link comes up
   (`ConnectionChanged(connected=True)`) and withdraw it once the warning is gone.
 
-The CLI does the same: `eufy-security login` prints the advice once the session is
-cached, and `eufy-security network` prints it on demand.
+The CLI does the same: `anker-eufy-security login` prints the advice once the session is
+cached, and `anker-eufy-security network` prints it on demand.
 
 ## Coordinator per station, push for the rest
 
@@ -1096,7 +1096,7 @@ A closed session (`async_close`) never reconnects on its own — build a new
   go between polls. See [reference/source-of-truth.md](../reference/source-of-truth.md).
 
   The reverse risk — the settings list claiming a setting a given unit never reports — is
-  the library's to audit, not yours: `StationState.coverage()` and `eufy-security
+  the library's to audit, not yours: `StationState.coverage()` and `anker-eufy-security
   coverage` compare the two per block. If it ever shows a listed setting going unreported
   on your hardware, that is a library bug to file, not something to work around.
 
@@ -1210,7 +1210,7 @@ A closed session (`async_close`) never reconnects on its own — build a new
   await station.async_set_mode_delays("home", exit_s=60)  # delays only, one write
   ```
 
-  It returns the mode's `ModeTable` (`from eufy_home_security import ModeTable`: per-channel
+  It returns the mode's `ModeTable` (`from anker_eufy_security import ModeTable`: per-channel
   `actions`, `alarm_delays`, `leaving_delays`). The delays keep the one-value-per-mode
   rule: `entry_s`/`exit_s` set the value of every device that has the delay on afterwards
   (0 turns it off on all); a device turned on without a value takes the value the others
@@ -1229,7 +1229,7 @@ A closed session (`async_close`) never reconnects on its own — build a new
   differs; see [Station configuration](#station-configuration)).
 
   **Labels:** `mode_action_label(flag)` (or `MODE_ACTION_LABELS`, from
-  `eufy_home_security.devices`) gives each flag's display title in sentence case, the
+  `anker_eufy_security.devices`) gives each flag's display title in sentence case, the
   eufy app's title where it has one:
 
   | flag | label |
@@ -1398,7 +1398,7 @@ For the integration this means:
   `SettingRole`, `SettingShown`, `SettingUnit`, `CommandOutcome` and `SettingsCoverage` are exported there; capability grades
   (`Capability`, `Support`, `profile_for_serial`), `MODE_ACTION_FLAGS`,
   `MODE_ACTION_LABELS`, `MODE_ACTION_INVERTED`, `MODE_ACTION_CLEARS` and `mode_action_on`
-  from `eufy_home_security.devices`.
+  from `anker_eufy_security.devices`.
 
 `setting.name` is the eufy app's own title where the app has one (`Clip length`,
 `Intervals between triggers`, `Working mode` on a T8160), else a title made from the key;
@@ -1727,7 +1727,7 @@ device_sn=…)`. The command and its polarity come from the model's file.
 
 ### Lights
 
-`station.lights_for(device_sn)` (model level: `eufy_home_security.devices.lights_of(product_code,
+`station.lights_for(device_sn)` (model level: `anker_eufy_security.devices.lights_of(product_code,
 connect, standalone=…)`) gives one `Light` per lamp of the eufy app's live view, in the
 device's context as `settings_for` resolves it, `()` for a device without one. A lamp is
 one of the app's lamp switches present on the model as a readable or writable bool:
@@ -2018,7 +2018,7 @@ ignores `lens_view` there (see `docs/protocol/media.md` § Multi-camera open).
 #### What the library gives you
 
 ```python
-from eufy_home_security import StreamBroadcast
+from anker_eufy_security import StreamBroadcast
 
 broadcast = StreamBroadcast(
     lambda: station.async_open_live(device_sn, wait=True),
@@ -2504,7 +2504,7 @@ name and rename on success; on a failure keep nothing.
 ### Update entities (firmware)
 
 `await eufy.async_firmware_updates()` returns one `FirmwareUpdate` per device the cloud
-OTA offers a newer firmware for (`from eufy_home_security import FirmwareUpdate`).
+OTA offers a newer firmware for (`from anker_eufy_security import FirmwareUpdate`).
 **An empty list is the normal, healthy state** — it means every device is on the newest
 published firmware, not that the check failed. A check that fails raises (`CloudApiError`
 when the OTA answers an error other than "up to date", `EmptyResponseError` for an answer
@@ -2711,7 +2711,7 @@ Indoor Cam 2K Pan & Tilt has `PTZ_CONTROL` without `PTZ_PRESETS` (declared): it 
 `async_pan_tilt` only, and every slot call raises `UnsupportedError` before sending.
 `PanTilt`, `PresetPosition` and
 `MAX_PRESET_SLOTS` import from the package root
-(`from eufy_home_security import PanTilt`).
+(`from anker_eufy_security import PanTilt`).
 
 **`async_pan_tilt` is a step, not a joystick.** Each call moves the camera a fixed
 amount and it stops there; there is no "stop" and no hold-to-pan. Map it to four
@@ -2925,7 +2925,7 @@ it takes. The library reads and writes the groups in the cloud and activates the
 app does; none of it is verified on hardware or against the live cloud yet.
 
 ```python
-from eufy_home_security import ArmingOutcome, GuardMode
+from anker_eufy_security import ArmingOutcome, GuardMode
 
 listing = await eufy.async_arming_groups()  # ArmingGroupList(house_id, groups, guided)
 group = await eufy.async_create_arming_group("Leaving", {hub_sn: "away", solo_sn: GuardMode.AWAY})
@@ -3044,7 +3044,7 @@ station.config  # the same, built from the current state, no I/O
   and the writes below pick the layout. On these models the tables are *declared*
   (`config_support`), not tested on hardware.
 - **Delay choices.** An entry (`alarm_delay`) or exit (`leaving_delay`) delay takes one of
-  `MODE_DELAY_CHOICES` (`from eufy_home_security import MODE_DELAY_CHOICES`: 0, 15, 30,
+  `MODE_DELAY_CHOICES` (`from anker_eufy_security import MODE_DELAY_CHOICES`: 0, 15, 30,
   45, 60, 180, 300 s; 0 is off), the list the eufy app offers on every station. No model
   has a list of its own; a station whose `config_support(StationFeature.MODE_DELAYS)` is
   `UNKNOWN` (the app offers no delays there, or the library cannot send them) gets no
@@ -3090,7 +3090,7 @@ station.config  # the same, built from the current state, no I/O
 info = await station.async_create_custom_mode("Garden", icon=3, expect_revision=rev)
 info = await station.async_rename_custom_mode(GuardMode.CUSTOM_2, "Yard")  # ModeInfo
 await station.async_delete_custom_mode("custom_2")
-from eufy_home_security import GuardMode, Schedule, ScheduleSlot, Weekday
+from anker_eufy_security import GuardMode, Schedule, ScheduleSlot, Weekday
 
 schedule = Schedule(
     account_id=None,
@@ -3165,8 +3165,8 @@ from a model list in the integration. `station.config_support(feature)` takes a
 `WORKING_MODE`) and returns an `Evidence`:
 
 ```python
-from eufy_home_security import StationFeature
-from eufy_home_security.devices import Support
+from anker_eufy_security import StationFeature
+from anker_eufy_security.devices import Support
 
 support = {f: station.config_support(f) for f in StationFeature}
 shown = [f for f, e in support.items() if e.support is not Support.UNKNOWN]
@@ -3184,7 +3184,7 @@ shown = [f for f, e in support.items() if e.support is not Support.UNKNOWN]
   user before sending, naming the effect. The library does not prompt.
 
 Without a `Station` (a config flow, a diagnostics dump), the same answers come from
-`eufy_home_security.devices.config_support(product_code, feature, firmware=...)`, with
+`anker_eufy_security.devices.config_support(product_code, feature, firmware=...)`, with
 `mode_table_storage`, `mode_table_params`, `max_custom_modes` and
 `cross_camera_intervals` for the per-model data. The grades per model are in
 [devices.md § Station configuration](../reference/devices.md#station-configuration).
@@ -3561,7 +3561,7 @@ at `static_key_session`.
 
 ## Testing the integration
 
-Test against the real library, not a mock of it: `eufy_home_security.testing` ships in the
+Test against the real library, not a mock of it: `anker_eufy_security.testing` ships in the
 wheel (see [testing.md](testing.md)). It wires a real `EufySecurity` — real cache,
 throttle, claims and inclusion — to a `FakeCloud` and loopback `FakeStation`s, so a test
 can prove what a boundary mock cannot:
@@ -3572,7 +3572,7 @@ can prove what a boundary mock cannot:
 - **Repair flows:** set `cloud.login_error = LoginLimitedError(retry_after=…)`; the
   hold-off is recorded, so `async_cloud_status()` agrees with the error.
 - **Unreachable stations:** a stopped `FakeStation` makes `async_start()` return its error.
-  Lower `DISCOVERY_ATTEMPTS` / `DISCOVERY_TIMEOUT` in `eufy_home_security.p2p.session`
+  Lower `DISCOVERY_ATTEMPTS` / `DISCOVERY_TIMEOUT` in `anker_eufy_security.p2p.session`
   first, or the test waits the production timeouts.
 - **Events:** `fake.push_camera_event(cipher=…)` reaches `eufy.subscribe`, GCM or ECB.
 - **Modes and schedule:** `fake.set_mode_list({GuardMode.CUSTOM_1: "Night watch"})` and
@@ -3596,7 +3596,7 @@ List the library's loggers so users can turn on debug from the UI. The opt-in pu
 stack logs under `firebase_messaging`, outside the library's own tree:
 
 ```json
-"loggers": ["eufy_home_security", "firebase_messaging"]
+"loggers": ["anker_eufy_security", "firebase_messaging"]
 ```
 
 Wire-level hexdumps stay off even at DEBUG; enable them explicitly with
@@ -3607,16 +3607,16 @@ client for it needs the `mqtt` extra (`aiomqtt`). An integration that serves suc
 locks requires the extra:
 
 ```json
-"requirements": ["eufy-home-security[mqtt]==<version>"]
+"requirements": ["anker-eufy-security[mqtt]==<version>"]
 ```
 
 The extra pins `aiomqtt>=2.2,<3`, which runs on the paho-mqtt 2.1.0 Home Assistant
 pins ([protocol/mqtt.md](../protocol/mqtt.md) § The client). Without it the library
 imports and serves stations as before; constructing
-`eufy_home_security.mqtt.account.EufyMqttAccount` (or a single scope's `EufyMqttClient`)
+`anker_eufy_security.mqtt.account.EufyMqttAccount` (or a single scope's `EufyMqttClient`)
 raises `MissingDependencyError` (its `extra` is `"mqtt"`). The transport is declared from the eufy app and not yet tested
 against the broker, and lock commands are not part of it yet; see
-[protocol/mqtt.md](../protocol/mqtt.md). Its loggers are under `eufy_home_security.mqtt`;
+[protocol/mqtt.md](../protocol/mqtt.md). Its loggers are under `anker_eufy_security.mqtt`;
 `aiomqtt` logs each MQTT packet under `mqtt`, outside the library's tree and unredacted
 (the client id carries the account's user id), so leave `mqtt` out of `loggers`; its
 ERROR `Unexpected message ID "<n>" in on_subscribe callback` on an unload is harmless

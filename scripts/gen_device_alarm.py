@@ -32,7 +32,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from eufy_home_security.devices.conditions import (
+from anker_eufy_security.devices.conditions import (
     ConditionUnit,
     choices,
     groups_of,
@@ -40,18 +40,18 @@ from eufy_home_security.devices.conditions import (
     td_conditions,
     variant_rest,
 )
-from eufy_home_security.devices.device_alarm import (
+from anker_eufy_security.devices.device_alarm import (
     ALARM_COMMANDS,
     ALARM_IDENTIFIER,
     CHANNEL_SLOT,
     HOMEBASE_CHOICE,
     USER_NAME_SLOT,
 )
-from eufy_home_security.devices.recipes import PARENT_CONNECT_TYPES, ConnectType
+from anker_eufy_security.devices.recipes import PARENT_CONNECT_TYPES, ConnectType
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CACHE = ROOT / ".work" / "cache" / "things_all"
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "_device_alarm_data.py"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "_device_alarm_data.py"
 NICKNAME = "nickname-probe"  # the app's ``nick_name``; becomes USER_NAME_SLOT
 WRAPPER = 1350  # the handler's SET_PAYLOAD wrapper: the library sends its subCmd
 _VARIANT = re.compile(r"__v\d+$")
@@ -86,7 +86,7 @@ def resolve(
 ) -> Mapping[str, Any] | None:
     """The alarm property the app reads for the device: the ``__v`` form whose read
     conditions pass with the most conditions (the first of equals), else the base
-    (:mod:`~eufy_home_security.devices.conditions`). Only the serials are known: a
+    (:mod:`~anker_eufy_security.devices.conditions`). Only the serials are known: a
     variant whose conditions need any other input does not pass."""
     unit = ConditionUnit(
         serial=device_sn, parent_serial=parent_sn, firmware=None, parent_firmware=None

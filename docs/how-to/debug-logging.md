@@ -6,34 +6,34 @@ Loggers follow the module path, so one subsystem can be turned up on its own:
 
 | Logger | What it covers |
 |---|---|
-| `eufy_home_security` | everything |
-| `eufy_home_security.cloud.api` | every HTTP call (URL, headers, body, status, API code, ms, response); the login flow step by step (cached session, password source, key exchanges, challenges, token), owner id and cipher keys, push-token upload, local hold-offs |
-| `eufy_home_security.storage` | session cache loaded / saved (sections, never values), version or account changes |
-| `eufy_home_security.client` | the P2P credentials handed to each station |
-| `eufy_home_security.identity` | which account serves a station shared between accounts |
-| `eufy_home_security.p2p.discovery` | LAN probe searches and who answered |
-| `eufy_home_security.p2p.transport` | bind, LAN_SEARCH / PUNCH_PKT / P2P_RDY, the rendezvous request and each PUNCH_TO punched, every DRW chunk and ack, retransmits, keepalive (sampled), CLOSE, link down |
-| `eufy_home_security.p2p.xzyh` | duplicate and out-of-order chunks (sampled) |
-| `eufy_home_security.p2p.broadcast` | a shared live stream's subscribers falling behind, resolution changes, resize grace |
-| `eufy_home_security.p2p.encoder` | a video frame dropped before muxing because it does not start with a start code (WARNING, once per 5 minutes per stream) |
-| `eufy_home_security.p2p.session` (and its submodules) | handshake steps and keys, every request (label, resends, reply time), command-lock waits, parameter changes, guard mode, camera pushes and their record binding, still fetches, trigger frames, media streams (see [Tracing a detection](#tracing-a-detection)) |
-| `eufy_home_security.devices.td` | thing-description properties skipped or units dropped while reading a cloud TD |
-| `eufy_home_security.station` (and its submodules) | event thumbnail source and history lookup outcome |
-| `eufy_home_security.events` | de-duplication drops and enrichments, stale guard and alarm pushes |
-| `eufy_home_security.push.fcm` | GCM checkin, Firebase install, GCM register, the MCS socket (connect, login, heartbeats, acks, resets), every push received and every drop decision |
-| `eufy_home_security.mqtt` (and its submodules) | MQTT devices selected, broker connects, losses and reconnects (a repeated connect or certificate failure at WARNING once per 5 minutes, DEBUG in between), refused topics, a failing message listener (once per 5 minutes), the socket of a failed connect that could not be closed (WARNING once per 5 minutes), a certificate drop the store could not save (WARNING once per 5 minutes), a DISCONNECT that fails on a stop (DEBUG, with its traceback), a client stop that failed (WARNING, from the account), each command published (sequence and redacted serial), dropped messages (sampled); the certificate request itself logs under `cloud.api`, its PEMs masked. `aiomqtt` logs each MQTT packet under its own `mqtt` logger, outside this tree and **not redacted** (the client id carries the account's user id and the install id) |
-| `eufy_home_security.wire.p2p` / `.wire.cloud` | hexdumps of every datagram; the full decoded P2P JSON of every command sent and notification received; raw cloud request and response bodies (identifiers masked like everywhere else, see [Redaction](#redaction)) |
-| `eufy_home_security.secrets` | a switch, not a log source: see [Secrets](#secrets-the-full-auth-flow) |
+| `anker_eufy_security` | everything |
+| `anker_eufy_security.cloud.api` | every HTTP call (URL, headers, body, status, API code, ms, response); the login flow step by step (cached session, password source, key exchanges, challenges, token), owner id and cipher keys, push-token upload, local hold-offs |
+| `anker_eufy_security.storage` | session cache loaded / saved (sections, never values), version or account changes |
+| `anker_eufy_security.client` | the P2P credentials handed to each station |
+| `anker_eufy_security.identity` | which account serves a station shared between accounts |
+| `anker_eufy_security.p2p.discovery` | LAN probe searches and who answered |
+| `anker_eufy_security.p2p.transport` | bind, LAN_SEARCH / PUNCH_PKT / P2P_RDY, the rendezvous request and each PUNCH_TO punched, every DRW chunk and ack, retransmits, keepalive (sampled), CLOSE, link down |
+| `anker_eufy_security.p2p.xzyh` | duplicate and out-of-order chunks (sampled) |
+| `anker_eufy_security.p2p.broadcast` | a shared live stream's subscribers falling behind, resolution changes, resize grace |
+| `anker_eufy_security.p2p.encoder` | a video frame dropped before muxing because it does not start with a start code (WARNING, once per 5 minutes per stream) |
+| `anker_eufy_security.p2p.session` (and its submodules) | handshake steps and keys, every request (label, resends, reply time), command-lock waits, parameter changes, guard mode, camera pushes and their record binding, still fetches, trigger frames, media streams (see [Tracing a detection](#tracing-a-detection)) |
+| `anker_eufy_security.devices.td` | thing-description properties skipped or units dropped while reading a cloud TD |
+| `anker_eufy_security.station` (and its submodules) | event thumbnail source and history lookup outcome |
+| `anker_eufy_security.events` | de-duplication drops and enrichments, stale guard and alarm pushes |
+| `anker_eufy_security.push.fcm` | GCM checkin, Firebase install, GCM register, the MCS socket (connect, login, heartbeats, acks, resets), every push received and every drop decision |
+| `anker_eufy_security.mqtt` (and its submodules) | MQTT devices selected, broker connects, losses and reconnects (a repeated connect or certificate failure at WARNING once per 5 minutes, DEBUG in between), refused topics, a failing message listener (once per 5 minutes), the socket of a failed connect that could not be closed (WARNING once per 5 minutes), a certificate drop the store could not save (WARNING once per 5 minutes), a DISCONNECT that fails on a stop (DEBUG, with its traceback), a client stop that failed (WARNING, from the account), each command published (sequence and redacted serial), dropped messages (sampled); the certificate request itself logs under `cloud.api`, its PEMs masked. `aiomqtt` logs each MQTT packet under its own `mqtt` logger, outside this tree and **not redacted** (the client id carries the account's user id and the install id) |
+| `anker_eufy_security.wire.p2p` / `.wire.cloud` | hexdumps of every datagram; the full decoded P2P JSON of every command sent and notification received; raw cloud request and response bodies (identifiers masked like everywhere else, see [Redaction](#redaction)) |
+| `anker_eufy_security.secrets` | a switch, not a log source: see [Secrets](#secrets-the-full-auth-flow) |
 
 At DEBUG the P2P loggers log every chunk of a parameter dump; raise
-`eufy_home_security.p2p.transport` to INFO for a quieter log that still shows every
+`anker_eufy_security.p2p.transport` to INFO for a quieter log that still shows every
 request and event.
 
 ```python
 import logging
 
 logging.basicConfig(level=logging.INFO)
-logging.getLogger("eufy_home_security.p2p").setLevel(logging.DEBUG)
+logging.getLogger("anker_eufy_security.p2p").setLevel(logging.DEBUG)
 ```
 
 ## Wire dumps
@@ -42,7 +42,7 @@ The `wire` loggers are held at WARNING even when the package is at DEBUG — a
 parameter dump alone is hundreds of lines. Turn them on explicitly:
 
 ```python
-from eufy_home_security import set_wire_logging
+from anker_eufy_security import set_wire_logging
 
 set_wire_logging(True)
 ```
@@ -125,7 +125,7 @@ The description comes from, in order:
    meaning.
 4. `unknown`.
 
-`eufy_home_security.devices.param_info.param_info(param_id, channel, scope)` gives
+`anker_eufy_security.devices.param_info.param_info(param_id, channel, scope)` gives
 the same description to a consumer.
 
 ## Tracing a detection
@@ -156,12 +156,12 @@ log them as they are.
 
 To follow a login or a session handshake byte for byte — the password sent, the
 auth token, ECDH public keys and shared secret, cipher keys, P2P session keys, FCM
-credentials — turn on the `eufy_home_security.secrets` switch. Every value that is
+credentials — turn on the `anker_eufy_security.secrets` switch. Every value that is
 otherwise redacted, identifiers included, is then logged in clear, in the same debug
 lines:
 
 ```python
-from eufy_home_security import set_secret_logging
+from anker_eufy_security import set_secret_logging
 
 set_secret_logging(True)
 ```
@@ -171,8 +171,8 @@ The CLI does the same with `--secrets` (combine with `-vv`). In Home Assistant:
 ```yaml
 logger:
   logs:
-    eufy_home_security: debug
-    eufy_home_security.secrets: debug
+    anker_eufy_security: debug
+    anker_eufy_security.secrets: debug
 ```
 
 Like the wire loggers, the switch is independent of the package level, so
@@ -184,7 +184,7 @@ full access to the account and the station: never share it.
 The integration's `manifest.json` lists the package:
 
 ```json
-"loggers": ["eufy_home_security"]
+"loggers": ["anker_eufy_security"]
 ```
 
 so *Enable debug logging* on the integration page raises the whole tree to DEBUG
@@ -193,7 +193,7 @@ so *Enable debug logging* on the integration page raises the whole tree to DEBUG
 ```yaml
 logger:
   logs:
-    eufy_home_security.p2p.session: debug
+    anker_eufy_security.p2p.session: debug
 ```
 
 ## Reading the signals

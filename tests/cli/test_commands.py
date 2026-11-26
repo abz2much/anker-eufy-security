@@ -17,25 +17,25 @@ from unittest.mock import Mock
 
 import pytest
 
-from eufy_home_security import client as client_module
-from eufy_home_security import network as network_module
-from eufy_home_security.cli import commands
-from eufy_home_security.cli.commands import Context, date_window, select_station
-from eufy_home_security.cli.config import UsageError, parse_args
-from eufy_home_security.cloud.api import CipherKeys, EufyCloudApi
-from eufy_home_security.cloud.models import CloudDevice, CloudInvite
-from eufy_home_security.devices import model_settings
-from eufy_home_security.exceptions import LoginChallengeError
-from eufy_home_security.models import GuardMode
-from eufy_home_security.network import LanPath
-from eufy_home_security.p2p import pppp
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p.pppp import DISCOVERY_PORT
-from eufy_home_security.push import fcm as fcm_module
-from eufy_home_security.station import Station
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.cloud import range_property, thing_description
-from eufy_home_security.testing.station import MEDIA_AUDIO, MEDIA_KEYFRAME, FakeStation
+from anker_eufy_security import client as client_module
+from anker_eufy_security import network as network_module
+from anker_eufy_security.cli import commands
+from anker_eufy_security.cli.commands import Context, date_window, select_station
+from anker_eufy_security.cli.config import UsageError, parse_args
+from anker_eufy_security.cloud.api import CipherKeys, EufyCloudApi
+from anker_eufy_security.cloud.models import CloudDevice, CloudInvite
+from anker_eufy_security.devices import model_settings
+from anker_eufy_security.exceptions import LoginChallengeError
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.network import LanPath
+from anker_eufy_security.p2p import pppp
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p.pppp import DISCOVERY_PORT
+from anker_eufy_security.push import fcm as fcm_module
+from anker_eufy_security.station import Station
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.cloud import range_property, thing_description
+from anker_eufy_security.testing.station import MEDIA_AUDIO, MEDIA_KEYFRAME, FakeStation
 
 CURRENT: dict[str, FakeStation] = {}
 

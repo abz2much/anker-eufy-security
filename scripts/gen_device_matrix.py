@@ -9,7 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from eufy_home_security.devices.matrix import render_support_matrix
+from anker_eufy_security.devices.matrix import render_support_matrix
 
 OUTPUT = Path(__file__).resolve().parent.parent / "docs" / "reference" / "devices.md"
 

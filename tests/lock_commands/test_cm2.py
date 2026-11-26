@@ -10,10 +10,10 @@ import pytest
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from eufy_home_security.exceptions import LockReplyMismatchError, ProtocolError
-from eufy_home_security.lock_commands import LockAction, LockReply, LockResult, cm2, frames
-from eufy_home_security.lock_commands.actions import cbc_encrypt
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.exceptions import LockReplyMismatchError, ProtocolError
+from anker_eufy_security.lock_commands import LockAction, LockReply, LockResult, cm2, frames
+from anker_eufy_security.lock_commands.actions import cbc_encrypt
+from anker_eufy_security.testing import SYNTHETIC
 
 SERIAL = "T8502" + SYNTHETIC.station_sn[5:]
 USER_ID = SYNTHETIC.account_id  # 40 characters, like the cloud's user ids

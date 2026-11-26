@@ -9,14 +9,14 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from eufy_home_security.exceptions import LiveStreamLimitError, UnsupportedError
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p.clip import CLIP_CONTENT_TYPE, IncompleteReason, MediaClip
-from eufy_home_security.p2p.messages import CMD_DOWNLOAD_VIDEO, CMD_RECORD_VIEW
-from eufy_home_security.p2p.mpegts import TS_PACKET_LEN
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.exceptions import LiveStreamLimitError, UnsupportedError
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p.clip import CLIP_CONTENT_TYPE, IncompleteReason, MediaClip
+from anker_eufy_security.p2p.messages import CMD_DOWNLOAD_VIDEO, CMD_RECORD_VIEW
+from anker_eufy_security.p2p.mpegts import TS_PACKET_LEN
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 
 CLIP = "/zx/hdd_data0/Camera00/202610/20261001072414/20261001072414.zxvideo"
 NATIVE_CLIP = "/media/mmcblk0p1/Camera05/20310203112233.dat"

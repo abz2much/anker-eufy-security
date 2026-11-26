@@ -1,0 +1,357 @@
+"""Device models, keyed by serial-number prefix.
+
+The hand-written entries below carry what was observed or looked up per model; every
+other product the eufy app names comes from :mod:`.app_models` (generated from the app,
+graded *declared*). A model's kind is its product category in the eufy app (see
+docs/how-to/add-a-device.md § The model). Names come from the name tables of the app's
+product handlers (:mod:`._model_names_data`, see :func:`product_name` for the rule).
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from enum import StrEnum
+from types import MappingProxyType
+from typing import Final
+
+from ._model_names_data import MODEL_NAMES
+from .app_models import APP_MODELS, APP_VERSION
+from .support import Evidence, Support
+
+SERIAL_PREFIX_LEN: Final = 5
+
+#: The eufy app's product category of every model it shows a camera card for.
+CAMERA_CATEGORY: Final = "Camera"
+
+
+class DeviceKind(StrEnum):
+    """What role a device plays in a eufy Security system."""
+
+    STATION = "station"
+    CAMERA = "camera"
+    SENSOR = "sensor"
+    KEYPAD = "keypad"
+    DOORBELL = "doorbell"
+    LOCK = "lock"
+    OTHER = "other"
+
+
+#: The kinds :attr:`DeviceModel.has_camera` counts for a model filed under no category.
+_CAMERA_KINDS: Final = frozenset({DeviceKind.CAMERA, DeviceKind.DOORBELL})
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeviceModel:
+    """One hardware model.
+
+    ``model`` is the serial-number prefix (``"T8030"``). ``name`` is the prefix's base
+    name (``"eufyCam C31"``) by the steps of :func:`product_name`, without a serial; the
+    prefix itself where no step names it. A single unit can carry another name
+    (:func:`product_name`). ``cloud_device_type`` is the ``device_type`` the cloud
+    device list reports, recorded only where a source states it. ``categories`` are
+    the eufy app's product categories of the model,
+    nearest first (``("VideoDoorbell", "Camera")``): the app shows a camera card and a
+    live view for every model under :data:`CAMERA_CATEGORY`, a video doorbell and a video lock
+    included. Empty where the app files the model under no category.
+    """
+
+    model: str
+    name: str
+    kind: DeviceKind
+    cloud_device_type: int | None
+    evidence: Evidence
+    categories: tuple[str, ...] = ()
+
+    @property
+    def has_camera(self) -> bool:
+        """Whether the eufy app shows the model as a camera: filed under
+        :data:`CAMERA_CATEGORY` (a video doorbell or video lock too), or of camera or
+        doorbell kind (a model the app files under no category)."""
+        return CAMERA_CATEGORY in self.categories or self.kind in _CAMERA_KINDS
+
+
+def _register(registry: dict[str, DeviceModel], *models: DeviceModel) -> None:
+    for entry in models:
+        if len(entry.model) != SERIAL_PREFIX_LEN:
+            raise ValueError(f"model {entry.model!r} is not a {SERIAL_PREFIX_LEN}-char prefix")
+        if entry.model in registry:
+            raise ValueError(f"duplicate device model {entry.model}")
+        registry[entry.model] = entry
+
+
+_APP_MODEL_LIST = "eufy app model list:"
+
+_ACRONYMS: Final = frozenset({"AI", "AUS", "BLE", "EU", "NVR", "PT", "SPB", "TMO"})
+_PREFIX_TOKEN: Final = re.compile(r"T[0-9][0-9A-Z]{3}")
+
+
+def _display_name(constant: str) -> str:
+    """A readable name for an app constant: ``CAMERA2C_PRO`` → ``Camera 2C Pro``."""
+    words = []
+    for token in constant.split("_"):
+        lead = len(token) - len(token.lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+        if token in _ACRONYMS or lead == 0 or _PREFIX_TOKEN.fullmatch(token):
+            words.append(token)
+        elif lead == len(token):
+            words.append(token.capitalize())
+        else:
+            words += [token[:lead].capitalize(), token[lead:]]
+    return " ".join(words)
+
+
+_APP_CONSTANTS: Final = {row[0]: row[1] for row in APP_MODELS}
+
+
+def _model_name(prefix: str) -> str:
+    """The base name :data:`MODEL_NAMES` holds for ``prefix``, else the name its app
+    constant reads as, else the prefix."""
+    entry = MODEL_NAMES.get(prefix)
+    if entry is not None and entry[0] is not None:
+        return entry[0]
+    constant = _APP_CONSTANTS.get(prefix)
+    return prefix if constant is None else _display_name(constant)
+
+
+def _observed(
+    model: str, kind: DeviceKind, cloud_device_type: int | None, evidence: Evidence
+) -> DeviceModel:
+    """A hand-written entry, named as :func:`_model_name` names its prefix."""
+    return DeviceModel(
+        model=model,
+        name=_model_name(model),
+        kind=kind,
+        cloud_device_type=cloud_device_type,
+        evidence=evidence,
+    )
+
+
+_models: dict[str, DeviceModel] = {}
+_register(
+    _models,
+    _observed(
+        model="T8030",
+        kind=DeviceKind.STATION,
+        cloud_device_type=18,
+        evidence=Evidence(
+            Support.VERIFIED,
+            "live P2P sessions, HomeBase 3 fw 3.8.6.0 and 3.8.7.4",
+            "device_type 18 is from the cloud device list; event-push and event-database "
+            "records for the same station carry device_type 43",
+        ),
+    ),
+    _observed(
+        model="T8160",
+        kind=DeviceKind.CAMERA,
+        cloud_device_type=19,
+        evidence=Evidence(
+            Support.VERIFIED,
+            "live settings write+read-back and media on T8030 HomeBase 3, camera fw 3.4.3.0",
+            "device_type 19 is carried by live event pushes and matches the eufy app device-type map",
+        ),
+    ),
+    _observed(
+        model="T8161",
+        kind=DeviceKind.CAMERA,
+        cloud_device_type=23,
+        evidence=Evidence(
+            Support.DECLARED,
+            f"{_APP_MODEL_LIST} CAMERA3C; eufy app device-type map (23)",
+        ),
+    ),
+    _observed(
+        model="T8910",
+        kind=DeviceKind.SENSOR,
+        cloud_device_type=10,
+        evidence=Evidence(
+            Support.DECLARED,
+            f"{_APP_MODEL_LIST} MOTION_SENSOR; eufy app device-type map (10)",
+            "a T8910 paired to a HomeBase 3 reports device_type 10 in the cloud device list; "
+            "its battery is in the station's parameter dump",
+        ),
+    ),
+    _observed(
+        model="T8170",
+        kind=DeviceKind.CAMERA,
+        cloud_device_type=48,
+        evidence=Evidence(
+            Support.DECLARED,
+            f"{_APP_MODEL_LIST} BATTERY_SOLO_CAM_8170; eufy app device-type map (48)",
+            "a standalone camera, its own station; the cloud device list reports "
+            "device_type 48 and the parameter dump labels its block 48",
+        ),
+    ),
+    _observed(
+        model="T8410",
+        kind=DeviceKind.CAMERA,
+        cloud_device_type=31,
+        evidence=Evidence(
+            Support.DECLARED,
+            f"{_APP_MODEL_LIST} INDOOR_CAMERA_PT; eufy app device-type map (31)",
+            "a standalone camera, its own station; a serial with '5' at index 6 is the "
+            "app's separate product T8410C, with its own thing description and handler",
+        ),
+    ),
+    _observed(
+        model="T8010",
+        kind=DeviceKind.STATION,
+        cloud_device_type=0,
+        evidence=Evidence(
+            Support.DECLARED,
+            f"{_APP_MODEL_LIST} STATION_2; eufy app device-type map (0)",
+            "the map files T8001/T8002/T8010/T8020 under one shared type 0",
+        ),
+    ),
+    _observed(
+        model="T8002",
+        kind=DeviceKind.STATION,
+        cloud_device_type=0,
+        evidence=Evidence(
+            Support.DECLARED,
+            f"{_APP_MODEL_LIST} STATION_AI; eufy app device-type map (0)",
+            "the eufy app constant calls this prefix STATION_AI",
+        ),
+    ),
+)
+
+
+def _app_model(
+    prefix: str,
+    constant: str | None,
+    kind: str,
+    device_type: int | None,
+    categories: tuple[str, ...],
+) -> DeviceModel:
+    source = f"eufy app {APP_VERSION} model list"
+    if constant is not None:
+        source += f": {constant}"
+    if device_type is not None:
+        source += f"; device-type map ({device_type})"
+    if categories:
+        note = f"app product category: {' > '.join(categories)}"
+    elif constant is not None:
+        note = "no app product category; kind read from the constant's name"
+    else:
+        note = "no app product category or constant"
+    return DeviceModel(
+        model=prefix,
+        name=_model_name(prefix),
+        kind=DeviceKind(kind),
+        cloud_device_type=device_type,
+        evidence=Evidence(Support.DECLARED, source, note),
+        categories=categories,
+    )
+
+
+_APP_CATEGORIES: Final = {row[0]: row[4] for row in APP_MODELS}
+for _prefix, _entry in _models.items():
+    _models[_prefix] = replace(_entry, categories=_APP_CATEGORIES.get(_prefix, ()))
+_register(_models, *(_app_model(*row) for row in APP_MODELS if row[0] not in _models))
+
+MODELS: Final[Mapping[str, DeviceModel]] = MappingProxyType(_models)
+
+#: Serial prefixes the eufy app leaves out of its P2P reconnect (battery SoloCams,
+#: battery doorbells, trackers, locks): it connects them when it comes to the
+#: foreground, but reconnects only the other stations when their session drops. A
+#: prefix, not a catalog model: most of them are not catalogued. The list leaves out
+#: newer battery models; the client adds those by their declared battery device flag
+#: (:func:`~.model_settings.reached_on_demand`).
+ON_DEMAND_PREFIXES: Final = frozenset(
+    {
+        "T7400", "T7401", "T8110", "T8115", "T8122", "T8123", "T8124", "T8130", "T8131",
+        "T8134", "T814X", "T8150", "T8151", "T8152", "T8153", "T8170", "T8171", "T8173",
+        "T8214", "T8500", "T8501", "T8502", "T8503", "T8506", "T8510", "T8520", "T8531",
+        "T85V0", "T86P2", "T8790", "T87B0", "T87B1", "T87B2", "T87B3", "T87B4", "T87B5",
+        "T8B00",
+    }
+)  # fmt: skip
+ON_DEMAND_EVIDENCE: Final = Evidence(
+    Support.DECLARED,
+    "eufy app: the serial prefixes its P2P watchdog and auto-reconnect leave out",
+    "the app reconnects every other station's session every 60 s while it is in the "
+    "foreground, and closes every session 120 s after it leaves",
+)
+
+
+#: Serials whose product code is not their 5-character prefix: ``(serial start, the
+#: character at index 6 or None for any, product code)``, first match wins.
+SERIAL_PRODUCT_CODES: Final[tuple[tuple[str, str | None, str], ...]] = (
+    ("T8W11P", None, "T8W11C"),
+    ("T8420", "6", "T8420X"),
+    ("T8520", "8", "T8510P"),
+    ("T8520", "9", "T8520P"),
+    ("T8210", "8", "T8210C"),
+    ("T8410", "5", "T8410C"),
+)
+SERIAL_PRODUCT_CODES_EVIDENCE: Final = Evidence(
+    Support.DECLARED,
+    "eufy app 6.1.10 serial-to-product rules",
+    "applied when the cloud names no product code (device_new_pn)",
+)
+
+
+def serial_product_code(serial: str) -> str | None:
+    """The product code a rule of :data:`SERIAL_PRODUCT_CODES` gives ``serial``
+    (``"T8410C"`` for a T8410 serial with ``5`` at index 6); ``None`` when none applies."""
+    sn = serial.strip().upper()
+    for start, sixth, code in SERIAL_PRODUCT_CODES:
+        if sn.startswith(start) and (sixth is None or sn[6:7] == sixth):
+            return code
+    return None
+
+
+def serial_prefix(serial: str) -> str | None:
+    """The 5-character model prefix of ``serial`` (``"T8160"``), catalogued or not;
+    ``None`` for a serial shorter than a prefix."""
+    prefix = serial.strip().upper()[:SERIAL_PREFIX_LEN]
+    return prefix if len(prefix) == SERIAL_PREFIX_LEN else None
+
+
+def model_for_serial(serial: str) -> DeviceModel | None:
+    """The model a serial number belongs to, by its 5-character prefix."""
+    prefix = serial_prefix(serial)
+    return None if prefix is None else MODELS.get(prefix)
+
+
+def product_name(serial: str, product_code: str | None = None) -> str | None:
+    """The product name for the unit ``serial`` (``"eufyCam C36"``), in three steps:
+
+    1. the product's own handler name table, where it names the prefix: the name the
+       eufy app shows for the unit;
+    2. else, as the library's choice, the newest handler table that names the prefix;
+    3. else the catalogued model's :attr:`~DeviceModel.name`, derived from the app's
+       model constant.
+
+    Steps 1 and 2 are the row of ``product_code`` (the unit's product, when it shares
+    the serial's prefix) or else of the serial's prefix (:data:`MODEL_NAMES`): the first
+    of its serial rules that matches, else its base name. Where no table names a unit,
+    the app shows nothing or the product code; the library keeps its own name (steps 2
+    and 3). A product whose thing description declares no ``device_model`` is named by
+    the same steps, though the app shows no such name for it. ``None`` when no step
+    names the prefix.
+    """
+    prefix = serial_prefix(serial)
+    if prefix is None:
+        return None
+    sn = serial.strip().upper()
+    code = (product_code or "").strip().upper()
+    entry = MODEL_NAMES.get(code) if code[:SERIAL_PREFIX_LEN] == prefix else None
+    entry = entry or MODEL_NAMES.get(prefix)
+    if entry is not None:
+        base, rules, _source = entry
+        for conditions, name in rules:
+            if all(sn[pos : pos + len(text)] == text for pos, text in conditions):
+                return name
+        if base is not None:
+            return base
+    model = MODELS.get(prefix)
+    return None if model is None else model.name
+
+
+def connects_on_demand(serial: str) -> bool:
+    """Whether a station is on the eufy app's on-demand list (:data:`ON_DEMAND_PREFIXES`):
+    a battery device a held session would keep awake. The client's rule is wider
+    (:func:`~.model_settings.reached_on_demand`); :attr:`Station.connects_on_demand
+    <anker_eufy_security.station.Station.connects_on_demand>` is the decision taken."""
+    return serial_prefix(serial) in ON_DEMAND_PREFIXES

@@ -8,11 +8,11 @@ from typing import Any
 import aiohttp
 import pytest
 
-from eufy_home_security._logging import SECRET_LOGGER, WIRE_LOGGER
-from eufy_home_security.cli import app, main
-from eufy_home_security.cli.commands import COMMANDS, Context
-from eufy_home_security.cli.config import UsageError, parse_args
-from eufy_home_security.exceptions import (
+from anker_eufy_security._logging import SECRET_LOGGER, WIRE_LOGGER
+from anker_eufy_security.cli import app, main
+from anker_eufy_security.cli.commands import COMMANDS, Context
+from anker_eufy_security.cli.config import UsageError, parse_args
+from anker_eufy_security.exceptions import (
     AccountRejectedError,
     AuthenticationError,
     CipherUnusableError,
@@ -38,7 +38,7 @@ from eufy_home_security.exceptions import (
 
 @pytest.fixture(autouse=True)
 def restore_logging() -> Iterator[None]:
-    package = logging.getLogger("eufy_home_security")
+    package = logging.getLogger("anker_eufy_security")
     level, wire, secrets = package.level, WIRE_LOGGER.level, SECRET_LOGGER.level
     yield
     package.setLevel(level)
@@ -49,7 +49,7 @@ def restore_logging() -> Iterator[None]:
 @pytest.mark.parametrize(
     ("exc", "needle"),
     [
-        (LoginChallengeError("verify_code"), "run `eufy-security login`"),
+        (LoginChallengeError("verify_code"), "run `anker-eufy-security login`"),
         (RateLimitedError("too many"), "24 h"),
         (RateLimitedError("too fast", retry_after=1500), "nothing is sent to it for 25 min"),
         (LoginLimitedError("100028", retry_after=7200), "next login is allowed in 2.0 h"),
@@ -120,8 +120,8 @@ def test_ctrl_c_exits_130(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_verbosity_wire_and_secret_logging() -> None:
     app.configure_logging(2, True, True)
-    assert logging.getLogger("eufy_home_security").level == logging.DEBUG
+    assert logging.getLogger("anker_eufy_security").level == logging.DEBUG
     assert WIRE_LOGGER.level == SECRET_LOGGER.level == logging.DEBUG
     app.configure_logging(1, False, False)
-    assert logging.getLogger("eufy_home_security").level == logging.INFO
+    assert logging.getLogger("anker_eufy_security").level == logging.INFO
     assert WIRE_LOGGER.level == SECRET_LOGGER.level == logging.WARNING

@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.cli.commands import COMMANDS
-from eufy_home_security.cli.config import (
+from anker_eufy_security.cli.commands import COMMANDS
+from anker_eufy_security.cli.config import (
     default_store_path,
     parse_args,
 )
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 
 @pytest.mark.parametrize(
@@ -127,5 +127,7 @@ def test_usage_errors_exit_2(argv: list[str]) -> None:
 
 
 def test_default_store_path_follows_xdg() -> None:
-    assert default_store_path({"XDG_CONFIG_HOME": "/cfg"}) == Path("/cfg/eufy-security/cache.json")
-    assert default_store_path({}) == Path("~/.config/eufy-security/cache.json").expanduser()
+    assert default_store_path({"XDG_CONFIG_HOME": "/cfg"}) == Path(
+        "/cfg/anker-eufy-security/cache.json"
+    )
+    assert default_store_path({}) == Path("~/.config/anker-eufy-security/cache.json").expanduser()

@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from eufy_home_security.p2p import messages
+from anker_eufy_security.p2p import messages
 
 FORMS = {
     "ecb_channel_value": messages.ECB_CHANNEL_VALUE_CMDS,

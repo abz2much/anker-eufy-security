@@ -14,12 +14,12 @@ import aiohttp
 import pytest
 from aioresponses import CallbackResult, aioresponses
 
-from eufy_home_security._logging import set_secret_logging
-from eufy_home_security.cloud import const, crypto
-from eufy_home_security.cloud.api import CipherKeys, EufyCloudApi, _check_owner_id, _Identity
-from eufy_home_security.cloud.models import CloudFace
-from eufy_home_security.cloud.status import LoginNeed, SessionState
-from eufy_home_security.exceptions import (
+from anker_eufy_security._logging import set_secret_logging
+from anker_eufy_security.cloud import const, crypto
+from anker_eufy_security.cloud.api import CipherKeys, EufyCloudApi, _check_owner_id, _Identity
+from anker_eufy_security.cloud.models import CloudFace
+from anker_eufy_security.cloud.status import LoginNeed, SessionState
+from anker_eufy_security.exceptions import (
     AuthenticationError,
     CipherKeyMissingError,
     CipherUnavailableError,
@@ -39,9 +39,9 @@ from eufy_home_security.exceptions import (
     SessionReplacedError,
     UnsupportedError,
 )
-from eufy_home_security.install import InstallState
-from eufy_home_security.storage import MemoryStore, SessionCache
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.install import InstallState
+from anker_eufy_security.storage import MemoryStore, SessionCache
+from anker_eufy_security.testing import SYNTHETIC
 
 from .conftest import (
     FAKE_AUTH_TOKEN,
@@ -486,13 +486,13 @@ async def test_a_successful_answer_clears_the_challenge_scope(
 async def test_a_login_logs_neither_the_email_nor_the_password(
     fake_mega: FakeMega, cache: SessionCache, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.cloud.api")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.cloud.api")
     with aioresponses() as mock:
         fake_mega.install(mock)
         async with aiohttp.ClientSession() as session:
             await _api(session, cache).async_login()
     logged = "\n".join(
-        r.getMessage() for r in caplog.records if r.name == "eufy_home_security.cloud.api"
+        r.getMessage() for r in caplog.records if r.name == "anker_eufy_security.cloud.api"
     )
     assert "logging in to the eufy cloud as" in logged
     assert SYNTHETIC.email not in logged
@@ -1735,7 +1735,7 @@ async def test_login_logs_the_auth_flow_with_secrets_only_when_enabled(
                 await api.async_login()
         return caplog.text
 
-    with caplog.at_level(logging.DEBUG, logger="eufy_home_security"):
+    with caplog.at_level(logging.DEBUG, logger="anker_eufy_security"):
         text = await login()
         assert "logging in to the eufy cloud" in text
         assert const.LOGIN_PATH in text

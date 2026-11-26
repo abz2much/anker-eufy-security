@@ -13,10 +13,10 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices import live_open, ptz, recipes
-from eufy_home_security.devices.model_settings import product_code_of
-from eufy_home_security.devices.ptz import PtzForm
-from eufy_home_security.devices.recipes import ConnectType, Recipe
+from anker_eufy_security.devices import live_open, ptz, recipes
+from anker_eufy_security.devices.model_settings import product_code_of
+from anker_eufy_security.devices.ptz import PtzForm
+from anker_eufy_security.devices.recipes import ConnectType, Recipe
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "thing_models"
 GOLDEN_FILES = sorted(FIXTURES.glob("*.json"))
@@ -54,7 +54,7 @@ def _open_live_stream(case: Case) -> Recipe:
 
 
 def _ptz_form(case: Case) -> PtzForm | None:
-    """The form the generated table (:mod:`eufy_home_security.devices.ptz`) names for the
+    """The form the generated table (:mod:`anker_eufy_security.devices.ptz`) names for the
     case's product, action and connect type."""
     code = product_code_of(None, case["device"]["device_sn"])
     return ptz.ptz_form(code, case["identifier"], _connect_type(case))
@@ -82,7 +82,7 @@ BUILDERS: dict[str, Callable[[Case], Recipe]] = {
     "set_picture_zoom": lambda case: recipes.set_picture_zoom(case["payload"]["dstZoom"]),
 }
 """Each identifier the library implements, called with a golden case's input; a
-pan/tilt/zoom action in the form :mod:`eufy_home_security.devices.ptz` names for it."""
+pan/tilt/zoom action in the form :mod:`anker_eufy_security.devices.ptz` names for it."""
 
 
 def _connect_type(case: Case) -> ConnectType:

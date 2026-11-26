@@ -9,9 +9,9 @@ from typing import Any
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from eufy_home_security.models import GuardMode
-from eufy_home_security.p2p.params import ParamDump, standalone_aliases
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.p2p.params import ParamDump, standalone_aliases
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def _param(dev: int, pid: int, value: str) -> dict[str, object]:

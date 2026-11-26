@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.exceptions import ProtocolError
-from eufy_home_security.mqtt.envelope import (
+from anker_eufy_security.exceptions import ProtocolError
+from anker_eufy_security.mqtt.envelope import (
     CMD_DOWNLINK_TRANS,
     CMD_STATUS_REQUEST,
     CMD_STATUS_REQUEST_NO_ACK,
@@ -23,7 +23,7 @@ from eufy_home_security.mqtt.envelope import (
     response_topic,
     serial_of_topic,
 )
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 _SN = "T85D0P2000054321"
 _CLIENT = f"android-eufy_security-{SYNTHETIC.account_id}-0011223344556677"

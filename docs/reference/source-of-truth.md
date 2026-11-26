@@ -82,7 +82,7 @@ appear and disappear between dumps.
 
 The opposite risk is real too: the settings are keyed on the *model*, not on the
 unit, so they can claim a setting a given unit never reports.
-`StationState.coverage()` — and `eufy-security coverage` — compares the two
+`StationState.coverage()` — and `anker-eufy-security coverage` — compares the two
 directions per block: readable settings that are reported, readable settings that
 are not reported, and reported parameters no setting reads.
 

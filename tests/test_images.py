@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.images import (
+from anker_eufy_security.images import (
     H264_CONTENT_TYPE,
     HEVC_CONTENT_TYPE,
     IMAGE_SOURCES,
@@ -13,8 +13,8 @@ from eufy_home_security.images import (
     ImageSource,
     picture_content_type,
 )
-from eufy_home_security.p2p.media import VideoCodec
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.p2p.media import VideoCodec
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def test_image_sources_define_the_costs_and_content_types() -> None:

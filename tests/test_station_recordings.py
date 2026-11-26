@@ -10,31 +10,31 @@ from typing import Any
 
 import pytest
 
-import eufy_home_security.station.history as station_history
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.events import HistoryRecord
-from eufy_home_security.exceptions import (
+import anker_eufy_security.station.history as station_history
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.events import HistoryRecord
+from anker_eufy_security.exceptions import (
     DeviceTimeoutError,
     RecordingCursorError,
     RecordingRefError,
     RecordNotFoundError,
     UnsupportedError,
 )
-from eufy_home_security.p2p.clip import ClipWriter, MediaClip
-from eufy_home_security.p2p.did import static_key
-from eufy_home_security.p2p.messages import HISTORY_RECORD_COUNTER
-from eufy_home_security.p2p.mpegts import TS_PACKET_LEN
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.recordings import (
+from anker_eufy_security.p2p.clip import ClipWriter, MediaClip
+from anker_eufy_security.p2p.did import static_key
+from anker_eufy_security.p2p.messages import HISTORY_RECORD_COUNTER
+from anker_eufy_security.p2p.mpegts import TS_PACKET_LEN
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.recordings import (
     RecordingPosition,
     RecordingRef,
     RecordingsPage,
     encode_cursor,
     encode_ref,
 )
-from eufy_home_security.station import RECORDING_QUIET, Station
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.station import RECORDING_QUIET, Station
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 
 STATION = CloudDevice(
     device_sn=SYNTHETIC.station_sn,

@@ -8,12 +8,12 @@ from collections.abc import Iterator
 
 import pytest
 
-from eufy_home_security import GuardMode
-from eufy_home_security._logging import set_wire_logging
-from eufy_home_security.events import EventSource, SecurityEvent
-from eufy_home_security.p2p.xzyh import FrameCipher
-from eufy_home_security.storage import MemoryStore
-from eufy_home_security.testing import SYNTHETIC, FakeCloud, FakeStation, build_eufy_security
+from anker_eufy_security import GuardMode
+from anker_eufy_security._logging import set_wire_logging
+from anker_eufy_security.events import EventSource, SecurityEvent
+from anker_eufy_security.p2p.xzyh import FrameCipher
+from anker_eufy_security.storage import MemoryStore
+from anker_eufy_security.testing import SYNTHETIC, FakeCloud, FakeStation, build_eufy_security
 
 RECORD_ID = 2023101500001
 THUMB = "/zx/hdd_data0/Camera00/202310/20231015120000/snapshort.jpg"
@@ -92,7 +92,7 @@ def _leaks(caplog: pytest.LogCaptureFixture) -> list[tuple[str, str]]:
 
 @pytest.mark.usefixtures("wire_on")
 async def test_no_identifier_in_any_log_record(caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
     await _run_flows()
     assert _leaks(caplog) == []
     assert any(
@@ -105,7 +105,7 @@ async def test_leak_check_sees_unmasked_keys(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Guards the test above: with key masking off, identifiers do reach the log."""
-    monkeypatch.setattr("eufy_home_security._logging.IDENTIFYING_KEYS", frozenset())
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    monkeypatch.setattr("anker_eufy_security._logging.IDENTIFYING_KEYS", frozenset())
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
     await _run_flows()
     assert _leaks(caplog)

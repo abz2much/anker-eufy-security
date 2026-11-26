@@ -9,9 +9,9 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from eufy_home_security import models
-from eufy_home_security.exceptions import ProtocolError
-from eufy_home_security.p2p.xzyh import (
+from anker_eufy_security import models
+from anker_eufy_security.exceptions import ProtocolError
+from anker_eufy_security.p2p.xzyh import (
     HEADER_LEN,
     MAGIC,
     MAX_FRAME_LEN,

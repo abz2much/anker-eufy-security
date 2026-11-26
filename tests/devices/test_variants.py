@@ -7,17 +7,17 @@ from collections.abc import Mapping
 
 import pytest
 
-from eufy_home_security.devices import model_settings
-from eufy_home_security.devices.conditions import Condition, ConditionUnit
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices import model_settings
+from anker_eufy_security.devices.conditions import Condition, ConditionUnit
+from anker_eufy_security.devices.model_settings import (
     Setting,
     SettingKind,
     VariantRule,
     bundled_codes,
     settings_of,
 )
-from eufy_home_security.devices.variants import setting_in_use
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.devices.variants import setting_in_use
+from anker_eufy_security.testing import SYNTHETIC
 
 TAIL = SYNTHETIC.camera_sn[5:]
 HB3 = SYNTHETIC.station_sn  # a HomeBase 3 serial

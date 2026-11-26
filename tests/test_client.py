@@ -18,29 +18,34 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from eufy_home_security import _logging as logging_module
-from eufy_home_security import client as client_module
-from eufy_home_security import storage as storage_module
-from eufy_home_security._logging import LogThrottle, redact_serial
-from eufy_home_security.client import EufySecurity
-from eufy_home_security.cloud import crypto
-from eufy_home_security.cloud.api import CipherKeys, EufyCloudApi, HttpSession, _SessionExpiredError
-from eufy_home_security.cloud.const import KEY_REFRESH_SLOW_RETRY, CloudCode
-from eufy_home_security.cloud.models import CloudDevice, CloudInvite
-from eufy_home_security.cloud.status import DeviceListSource, LoginNeed
-from eufy_home_security.devices.capabilities import Capability
-from eufy_home_security.devices.locks import LockState, LockStateSource
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security import _logging as logging_module
+from anker_eufy_security import client as client_module
+from anker_eufy_security import storage as storage_module
+from anker_eufy_security._logging import LogThrottle, redact_serial
+from anker_eufy_security.client import EufySecurity
+from anker_eufy_security.cloud import crypto
+from anker_eufy_security.cloud.api import (
+    CipherKeys,
+    EufyCloudApi,
+    HttpSession,
+    _SessionExpiredError,
+)
+from anker_eufy_security.cloud.const import KEY_REFRESH_SLOW_RETRY, CloudCode
+from anker_eufy_security.cloud.models import CloudDevice, CloudInvite
+from anker_eufy_security.cloud.status import DeviceListSource, LoginNeed
+from anker_eufy_security.devices.capabilities import Capability
+from anker_eufy_security.devices.locks import LockState, LockStateSource
+from anker_eufy_security.devices.model_settings import (
     BATTERY_PROPERTY,
     PARENTLESS_ONLY,
     bundled_td_version,
     settings_of,
 )
-from eufy_home_security.devices.recipes import connect_type
-from eufy_home_security.devices.support import Support
-from eufy_home_security.devices.timezones import encode_zone, zone_ids
-from eufy_home_security.devices.types import MODELS
-from eufy_home_security.events import (
+from anker_eufy_security.devices.recipes import connect_type
+from anker_eufy_security.devices.support import Support
+from anker_eufy_security.devices.timezones import encode_zone, zone_ids
+from anker_eufy_security.devices.types import MODELS
+from anker_eufy_security.events import (
     AlarmChanged,
     CloudProblem,
     ConnectionChanged,
@@ -59,7 +64,7 @@ from eufy_home_security.events import (
     SecurityEvent,
     StationsChanged,
 )
-from eufy_home_security.exceptions import (
+from anker_eufy_security.exceptions import (
     AuthenticationError,
     CipherKeyMissingError,
     CipherUnavailableError,
@@ -80,28 +85,28 @@ from eufy_home_security.exceptions import (
     UnsupportedError,
     VideoEncryptedPictureError,
 )
-from eufy_home_security.identity import StationClaims
-from eufy_home_security.images import JPEG_CONTENT_TYPE, PushImage
-from eufy_home_security.inclusion import Reach
-from eufy_home_security.install import InstallState
-from eufy_home_security.models import PARAM_DETECTED_EVENTS, PARAM_LAN_IP, GuardMode
-from eufy_home_security.network import HostSource, PathWarning
-from eufy_home_security.p2p import discovery as discovery_module
-from eufy_home_security.p2p import netif
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p import transport as transport_module
-from eufy_home_security.p2p.did import Did
-from eufy_home_security.p2p.discovery import DiscoveredStation
-from eufy_home_security.p2p.media import Still, StillFormat
-from eufy_home_security.p2p.messages import STANDALONE_RECEIPT_LEN
-from eufy_home_security.p2p.pppp import BROADCAST, encode_sockaddr
-from eufy_home_security.p2p.transport import RENDEZVOUS_PORT, ConnectPath, PPPPTransport, Wake
-from eufy_home_security.p2p.xzyh import FrameType
-from eufy_home_security.push import fcm as fcm_module
-from eufy_home_security.push.decode import decode_push
-from eufy_home_security.station import Station
-from eufy_home_security.storage import CACHE_SECTIONS, CACHE_VERSION, MemoryStore
-from eufy_home_security.testing import (
+from anker_eufy_security.identity import StationClaims
+from anker_eufy_security.images import JPEG_CONTENT_TYPE, PushImage
+from anker_eufy_security.inclusion import Reach
+from anker_eufy_security.install import InstallState
+from anker_eufy_security.models import PARAM_DETECTED_EVENTS, PARAM_LAN_IP, GuardMode
+from anker_eufy_security.network import HostSource, PathWarning
+from anker_eufy_security.p2p import discovery as discovery_module
+from anker_eufy_security.p2p import netif
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p import transport as transport_module
+from anker_eufy_security.p2p.did import Did
+from anker_eufy_security.p2p.discovery import DiscoveredStation
+from anker_eufy_security.p2p.media import Still, StillFormat
+from anker_eufy_security.p2p.messages import STANDALONE_RECEIPT_LEN
+from anker_eufy_security.p2p.pppp import BROADCAST, encode_sockaddr
+from anker_eufy_security.p2p.transport import RENDEZVOUS_PORT, ConnectPath, PPPPTransport, Wake
+from anker_eufy_security.p2p.xzyh import FrameType
+from anker_eufy_security.push import fcm as fcm_module
+from anker_eufy_security.push.decode import decode_push
+from anker_eufy_security.station import Station
+from anker_eufy_security.storage import CACHE_SECTIONS, CACHE_VERSION, MemoryStore
+from anker_eufy_security.testing import (
     SYNTHETIC,
     FakeCloud,
     FakeStation,
@@ -110,7 +115,7 @@ from eufy_home_security.testing import (
     v2_still,
     warm_store,
 )
-from eufy_home_security.testing.cloud import (
+from anker_eufy_security.testing.cloud import (
     camera_device,
     enum_property,
     range_property,
@@ -310,7 +315,7 @@ async def test_a_newly_paired_model_is_read_off_the_loop_once(
     # the file is read once, in a worker thread, never on the loop, and never again.
     import importlib.resources  # noqa: PLC0415
 
-    from eufy_home_security.devices import model_settings  # noqa: PLC0415
+    from anker_eufy_security.devices import model_settings  # noqa: PLC0415
 
     model_settings._load.cache_clear()
     model_settings._resolved.cache_clear()
@@ -3541,7 +3546,7 @@ async def test_an_unbundled_station_keeps_a_held_session_whatever_its_listing(
 
 @pytest.fixture
 def scan_logs(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
     return caplog
 
 
@@ -3550,7 +3555,7 @@ def scan_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
     return [
         r
         for r in caplog.records
-        if r.name == "eufy_home_security.client"
+        if r.name == "anker_eufy_security.client"
         and r.levelno >= logging.INFO
         and "thing description" in r.getMessage()
     ]
@@ -3713,7 +3718,7 @@ async def test_newer_vendor_data_is_logged_once_and_the_bundled_settings_stay(
     newer = f"vendor data for T8160 is newer than bundled (td {bundled + 1} > {bundled})"
     assert [r.getMessage() for r in scan_logs.records].count(newer) == 1
     assert all(by_key[k] == v for k, v in settings_of("T8160").items() if k not in PARENTLESS_ONLY)
-    from eufy_home_security import ModelStatus  # noqa: PLC0415 - the public export
+    from anker_eufy_security import ModelStatus  # noqa: PLC0415 - the public export
 
     assert status == (
         ModelStatus("T8030", "bundled", bundled_td_version("T8030"), None),

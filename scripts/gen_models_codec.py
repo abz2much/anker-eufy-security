@@ -13,17 +13,17 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices.model_settings import (
     ACCOUNT_SLOT,
     OBJECT_SLOT,
     decode_object,
     derived_form,
     object_slot,
 )
-from eufy_home_security.devices.recipes import PARENT_CONNECT_TYPES
+from anker_eufy_security.devices.recipes import PARENT_CONNECT_TYPES
 
 # The TD readers live in the library; the generator reaches them through this module.
-from eufy_home_security.devices.td import (  # noqa: F401 - re-exported
+from anker_eufy_security.devices.td import (  # noqa: F401 - re-exported
     intify,
     kind_of,
     public_value,

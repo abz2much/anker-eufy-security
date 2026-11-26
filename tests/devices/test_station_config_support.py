@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.devices import station_config_support as scs
-from eufy_home_security.devices._station_config_data import FEATURES
-from eufy_home_security.devices.model_settings import settings_of
-from eufy_home_security.devices.station_config_support import (
+from anker_eufy_security.devices import station_config_support as scs
+from anker_eufy_security.devices._station_config_data import FEATURES
+from anker_eufy_security.devices.model_settings import settings_of
+from anker_eufy_security.devices.station_config_support import (
     ALARM_AFFECTING,
     CROSS_CAMERA_EXCLUDED_PREFIXES,
     ModeTableStorage,
@@ -28,10 +28,10 @@ from eufy_home_security.devices.station_config_support import (
     station_config_models,
     stored_mode_table_params,
 )
-from eufy_home_security.devices.support import Support
-from eufy_home_security.devices.types import MODELS, DeviceKind
-from eufy_home_security.models import GuardMode
-from eufy_home_security.p2p.station_config_codecs import (
+from anker_eufy_security.devices.support import Support
+from anker_eufy_security.devices.types import MODELS, DeviceKind
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.p2p.station_config_codecs import (
     PRO_ALARM_MODE_TABLE_PARAMS,
     STORED_MODE_TABLE_PARAMS,
 )

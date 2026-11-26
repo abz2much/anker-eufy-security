@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.exceptions import UnsupportedError
-from eufy_home_security.models import GuardMode
-from eufy_home_security.p2p.mode_actions import (
+from anker_eufy_security.exceptions import UnsupportedError
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.p2p.mode_actions import (
     ACTION_FLAGS,
     FIELD_PARAMS,
     MODE_TABLE_MODES,

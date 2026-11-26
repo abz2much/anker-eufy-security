@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.p2p.param_notify import ParamNotify, decode_param_notify
+from anker_eufy_security.p2p.param_notify import ParamNotify, decode_param_notify
 
 
 def test_a_sensor_status_list_sets_each_listed_parameter() -> None:

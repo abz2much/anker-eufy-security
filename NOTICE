@@ -1,0 +1,8 @@
+anker-eufy-security
+
+This product is based on eufy-home-security by Alar Aun
+(https://github.com/alaraun/python-eufy-home-security), release v0.4.19
+(commit aad23e4439de9516d5621e09918b2ed39d5577ce), licensed under the MIT License.
+The original copyright notice and licence text are kept in LICENSE.
+
+Changes from the original are listed in CHANGES-FROM-UPSTREAM.md.

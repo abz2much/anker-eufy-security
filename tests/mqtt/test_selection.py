@@ -8,11 +8,11 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.devices import model_settings
-from eufy_home_security.devices.model_settings import bundled_codes, settings_of
-from eufy_home_security.exceptions import ModelDataError, UnsupportedError
-from eufy_home_security.mqtt import (
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.devices import model_settings
+from anker_eufy_security.devices.model_settings import bundled_codes, settings_of
+from anker_eufy_security.exceptions import ModelDataError, UnsupportedError
+from anker_eufy_security.mqtt import (
     SUPPORT_PROPERTY,
     device_key,
     is_mqtt_device,
@@ -25,7 +25,7 @@ from eufy_home_security.mqtt import (
 
 def _declared_true() -> set[str]:
     """The bundled codes whose file declares the property's default true, read from the files."""
-    root = resources.files("eufy_home_security.devices.data.models")
+    root = resources.files("anker_eufy_security.devices.data.models")
     out = set()
     for code in bundled_codes():
         settings = json.loads(root.joinpath(f"{code}.json").read_text())["settings"]

@@ -7,7 +7,7 @@ Checks, in order: exactly one sdist and one wheel of the project's name and vers
 ``twine check --strict`` and ``check-wheel-contents``; the sdist holds only what builds
 the wheel; the wheel rebuilt from the sdist is byte-identical to the one given; the
 wheel and the sdist each install into a clean venv, import, find their package data and
-run ``eufy-security --help`` outside the source tree; ``uv tool install`` and
+run ``anker-eufy-security --help`` outside the source tree; ``uv tool install`` and
 ``uvx --from <wheel>`` run the CLI. Needs ``uv`` and network access (dependencies,
 check tools). Exits non-zero on the first failure.
 """
@@ -26,10 +26,12 @@ from collections.abc import Iterable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MODULE = "eufy_home_security"
-SCRIPT = "eufy-security"
+MODULE = "anker_eufy_security"
+SCRIPT = "anker-eufy-security"
 # Top-level sdist entries: the build inputs and the files a redistributor needs.
-SDIST_TOP = frozenset({"PKG-INFO", "pyproject.toml", "README.md", "LICENSE", "CHANGELOG.md", "src"})
+SDIST_TOP = frozenset(
+    {"PKG-INFO", "pyproject.toml", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md", "src"}
+)
 # uv_build 0.12 writes a normalised pyproject.toml into the sdist and keeps the source
 # file as pyproject.toml.orig; a build input, not junk.
 SDIST_EXTRA = frozenset({"pyproject.toml.orig"})
@@ -47,7 +49,7 @@ import {MODULE} as pkg
 from {MODULE}.devices.model_settings import settings_of
 root = pathlib.Path(pkg.__file__).resolve()
 assert "site-packages" in root.parts, root
-assert pkg.__version__ == importlib.metadata.version("eufy-home-security") == sys.argv[1], pkg.__version__
+assert pkg.__version__ == importlib.metadata.version("anker-eufy-security") == sys.argv[1], pkg.__version__
 assert importlib.resources.files("{MODULE}").joinpath("py.typed").is_file()
 assert settings_of("T8160"), "no T8160 settings"
 print(pkg.__version__, root.parent)

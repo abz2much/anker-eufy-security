@@ -8,10 +8,10 @@ from urllib.parse import quote
 
 import pytest
 
-from eufy_home_security import RecordingCursorError, RecordingRefError, RecordingsPage
-from eufy_home_security.events import HistoryRecord
-from eufy_home_security.p2p.messages import HISTORY_RECORD_COUNTER
-from eufy_home_security.recordings import (
+from anker_eufy_security import RecordingCursorError, RecordingRefError, RecordingsPage
+from anker_eufy_security.events import HistoryRecord
+from anker_eufy_security.p2p.messages import HISTORY_RECORD_COUNTER
+from anker_eufy_security.recordings import (
     RecordingPosition,
     RecordingRef,
     _check,
@@ -21,7 +21,7 @@ from eufy_home_security.recordings import (
     encode_ref,
     issue_ref,
 )
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 STATION = SYNTHETIC.station_sn
 CAMERA = SYNTHETIC.camera_sn

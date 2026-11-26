@@ -10,16 +10,16 @@ from types import ModuleType
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.devices import webrtc
-from eufy_home_security.devices.conditions import Condition
-from eufy_home_security.devices.webrtc import (
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.devices import webrtc
+from anker_eufy_security.devices.conditions import Condition
+from anker_eufy_security.devices.webrtc import (
     RouteDevice,
     app_uses_webrtc,
     app_webrtc_only,
     route_device,
 )
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = ROOT / ".work" / "cache" / "things_all"

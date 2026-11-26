@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.devices.conditions import (
+from anker_eufy_security.devices.conditions import (
     Condition,
     ConditionUnit,
     Groups,
@@ -15,7 +15,7 @@ from eufy_home_security.devices.conditions import (
     variant_rest,
     version,
 )
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 UNIT = ConditionUnit(
     serial=SYNTHETIC.camera_sn,

@@ -14,14 +14,14 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.client import EufySecurity
-from eufy_home_security.cloud import const
-from eufy_home_security.cloud.models import REGION_KEY, CloudDevice
-from eufy_home_security.mqtt import client as client_module
-from eufy_home_security.mqtt.client import EufyMqttClient
-from eufy_home_security.mqtt.envelope import CMD_UPLINK_TRANS
-from eufy_home_security.testing import SYNTHETIC, FakeCloud, build_eufy_security, warm_store
-from eufy_home_security.testing.mqtt import FakeMqttBroker, MqttTestPki, make_mqtt_pki
+from anker_eufy_security.client import EufySecurity
+from anker_eufy_security.cloud import const
+from anker_eufy_security.cloud.models import REGION_KEY, CloudDevice
+from anker_eufy_security.mqtt import client as client_module
+from anker_eufy_security.mqtt.client import EufyMqttClient
+from anker_eufy_security.mqtt.envelope import CMD_UPLINK_TRANS
+from anker_eufy_security.testing import SYNTHETIC, FakeCloud, build_eufy_security, warm_store
+from anker_eufy_security.testing.mqtt import FakeMqttBroker, MqttTestPki, make_mqtt_pki
 
 LOCK_SN = "T85D0P2000054321"
 LOCK2_SN = "T85L0P2000054322"

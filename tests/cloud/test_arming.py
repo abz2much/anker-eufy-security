@@ -10,9 +10,9 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from eufy_home_security.cloud import arming, const
-from eufy_home_security.cloud.api import EufyCloudApi
-from eufy_home_security.cloud.arming import (
+from anker_eufy_security.cloud import arming, const
+from anker_eufy_security.cloud.api import EufyCloudApi
+from anker_eufy_security.cloud.arming import (
     ArmingGroup,
     ArmingGroupList,
     ArmingGroupLog,
@@ -20,10 +20,10 @@ from eufy_home_security.cloud.arming import (
     ArmingGroupPreset,
     ArmingHouse,
 )
-from eufy_home_security.exceptions import CloudApiError, ProtocolError, UnsupportedError
-from eufy_home_security.models import GuardMode
-from eufy_home_security.storage import SessionCache
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.exceptions import CloudApiError, ProtocolError, UnsupportedError
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.storage import SessionCache
+from anker_eufy_security.testing import SYNTHETIC
 
 from .conftest import ARMING_ENDPOINTS, FakeMega
 

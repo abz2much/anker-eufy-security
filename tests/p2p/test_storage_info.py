@@ -9,7 +9,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from eufy_home_security.p2p.storage_info import (
+from anker_eufy_security.p2p.storage_info import (
     CMD_HUB_STORAGE,
     CMD_SD_INFO,
     CMD_STORAGE,
@@ -33,8 +33,8 @@ from eufy_home_security.p2p.storage_info import (
     storage_query_payload,
     storage_record,
 )
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import synthetic_hub_storage, synthetic_storage_body
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import synthetic_hub_storage, synthetic_storage_body
 
 
 def test_query_payloads_are_the_apps() -> None:

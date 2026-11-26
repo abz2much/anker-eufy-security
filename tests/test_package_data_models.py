@@ -17,8 +17,8 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS = "eufy_home_security/devices/data/models/"
-DATA = "eufy_home_security/devices/data/"
+MODELS = "anker_eufy_security/devices/data/models/"
+DATA = "anker_eufy_security/devices/data/"
 
 
 def _wheel_members(tmp_path: Path) -> set[str]:
@@ -71,8 +71,8 @@ def test_every_indexed_model_snapshot_ships_and_nothing_else(tmp_path: Path) -> 
         assert required in members, required
     for removed in (
         f"{DATA}corpus_unanimous.json",
-        "eufy_home_security/devices/registry.py",
-        "eufy_home_security/devices/aliases.py",
+        "anker_eufy_security/devices/registry.py",
+        "anker_eufy_security/devices/aliases.py",
         f"{DATA}app_choice_labels.json",
         f"{MODELS}RELEASED_KEYS.json",
     ):

@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.13"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -173,6 +173,64 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz", hash = "sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7", size = 25007, upload-time = "2025-07-03T22:54:43.528Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/76/641ae371508676492379f16e2fa48f4e2c11741bd63c48be4b12a6b09cba/aiosignal-1.4.0-py3-none-any.whl", hash = "sha256:053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e", size = 7490, upload-time = "2025-07-03T22:54:42.156Z" },
+]
+
+[[package]]
+name = "anker-eufy-security"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "cryptography" },
+    { name = "firebase-messaging" },
+    { name = "protobuf" },
+    { name = "tzdata" },
+]
+
+[package.optional-dependencies]
+mqtt = [
+    { name = "aiomqtt" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "aiomqtt" },
+    { name = "aioresponses" },
+    { name = "hypothesis" },
+    { name = "mypy" },
+    { name = "prek" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.11" },
+    { name = "aiomqtt", marker = "extra == 'mqtt'", specifier = ">=2.2,<3" },
+    { name = "cryptography", specifier = ">=44" },
+    { name = "firebase-messaging", specifier = ">=0.4" },
+    { name = "protobuf", specifier = ">=5" },
+    { name = "tzdata", specifier = ">=2025.2" },
+]
+provides-extras = ["mqtt"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "aiomqtt", specifier = ">=2.2,<3" },
+    { name = "aioresponses", specifier = ">=0.7.8" },
+    { name = "hypothesis", specifier = ">=6.130" },
+    { name = "mypy", specifier = ">=1.17" },
+    { name = "prek", specifier = ">=0.2" },
+    { name = "pytest", specifier = ">=8.4" },
+    { name = "pytest-asyncio", specifier = ">=1.2" },
+    { name = "pytest-cov", specifier = ">=6" },
+    { name = "pytest-timeout", specifier = ">=2.3" },
+    { name = "pytest-xdist", specifier = ">=3.8" },
+    { name = "ruff", specifier = ">=0.13" },
 ]
 
 [[package]]
@@ -475,64 +533,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/10/bf/8d6ebc7dded797bd0f0160d52188021211f011a2b164ef0ae1dac4587465/cryptography-50.0.2-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:7a8701d6b584d76e909e3d305b7d126b41439876a5aaf76cddc67fc230eafa2e", size = 4897738, upload-time = "2026-09-30T15:29:43.106Z" },
     { url = "https://files.pythonhosted.org/packages/d4/aa/f3f6e0de7e6253b8baa8b2d8fb9d50924fa75cee3d4624bd4bc1208ee923/cryptography-50.0.2-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:ce47f66801c20ec6c6632453bb5960fe38939e9306970b48b3a5a26de7745d94", size = 5058280, upload-time = "2026-09-30T15:29:44.827Z" },
     { url = "https://files.pythonhosted.org/packages/f6/b6/a1faf3a27ae9405fb34b1713cc73b2d8a26b04d5c561578fa2e6ef3e5bb9/cryptography-50.0.2-cp39-abi3-win_amd64.whl", hash = "sha256:4e81d95e5bafc2d6e34e4bed780e53e4d5b9a2f928573428aa4d35fbec1eb0de", size = 3854095, upload-time = "2026-09-30T15:29:46.782Z" },
-]
-
-[[package]]
-name = "eufy-home-security"
-version = "0.4.19"
-source = { editable = "." }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "cryptography" },
-    { name = "firebase-messaging" },
-    { name = "protobuf" },
-    { name = "tzdata" },
-]
-
-[package.optional-dependencies]
-mqtt = [
-    { name = "aiomqtt" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "aiomqtt" },
-    { name = "aioresponses" },
-    { name = "hypothesis" },
-    { name = "mypy" },
-    { name = "prek" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.11" },
-    { name = "aiomqtt", marker = "extra == 'mqtt'", specifier = ">=2.2,<3" },
-    { name = "cryptography", specifier = ">=44" },
-    { name = "firebase-messaging", specifier = ">=0.4" },
-    { name = "protobuf", specifier = ">=5" },
-    { name = "tzdata", specifier = ">=2025.2" },
-]
-provides-extras = ["mqtt"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "aiomqtt", specifier = ">=2.2,<3" },
-    { name = "aioresponses", specifier = ">=0.7.8" },
-    { name = "hypothesis", specifier = ">=6.130" },
-    { name = "mypy", specifier = ">=1.17" },
-    { name = "prek", specifier = ">=0.2" },
-    { name = "pytest", specifier = ">=8.4" },
-    { name = "pytest-asyncio", specifier = ">=1.2" },
-    { name = "pytest-cov", specifier = ">=6" },
-    { name = "pytest-timeout", specifier = ">=2.3" },
-    { name = "pytest-xdist", specifier = ">=3.8" },
-    { name = "ruff", specifier = ">=0.13" },
 ]
 
 [[package]]

@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices._model_names_data import MODEL_NAMES
+from anker_eufy_security.devices._model_names_data import MODEL_NAMES
 
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = ROOT / ".work" / "cache" / "things_all"

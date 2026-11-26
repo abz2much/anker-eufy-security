@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from eufy_home_security.p2p.media import MediaFrame, MediaKind, VideoCodec
-from eufy_home_security.p2p.mpegts import TS_PACKET_LEN, VIDEO_PID
+from anker_eufy_security.p2p.media import MediaFrame, MediaKind, VideoCodec
+from anker_eufy_security.p2p.mpegts import TS_PACKET_LEN, VIDEO_PID
 
 SC = b"\x00\x00\x00\x01"
 #: Synthetic access units per codec: a keyframe (parameter sets + IRAP/IDR) and a P-frame,

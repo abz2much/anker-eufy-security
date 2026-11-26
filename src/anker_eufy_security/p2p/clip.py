@@ -1,0 +1,230 @@
+"""Mux a camera's media frames into one MPEG-TS clip, written out in chunks.
+
+A clip is what a consumer stores as a video file: a stored recording downloaded off the
+station's disk (:meth:`~anker_eufy_security.station.Station.async_download_recording`)
+or a stretch of a live stream (:meth:`~.broadcast.StreamBroadcast.async_capture`); a
+recording played for a viewer (:meth:`~anker_eufy_security.station.Station.async_play_recording`)
+is muxed the same way. All come as :class:`~.media.MediaFrame` sequences; this module muxes
+them with the same :class:`~.encoder.StreamEncoder` the live view uses (HEVC or H.264 and AAC
+carried untouched, starting at the first keyframe, following a picture-size change) and hands
+the bytes to the consumer's ``write`` coroutine in chunks of :data:`CLIP_CHUNK_BYTES` (a
+playback: per frame).
+
+Remuxing the TS into MP4 is the consumer's (Home Assistant has ffmpeg): a stream copy,
+no decode.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
+from typing import Final
+
+from .encoder import StreamEncoder
+from .media import MediaFrame, MediaKind, VideoCodec
+
+__all__ = ["CLIP_CHUNK_BYTES", "CLIP_CONTENT_TYPE", "ClipWriter", "IncompleteReason", "MediaClip"]
+
+#: The MIME type of a clip's bytes.
+CLIP_CONTENT_TYPE: Final = "video/mp2t"
+#: Muxed bytes are handed to ``write`` in chunks of at least this size (the last one smaller).
+CLIP_CHUNK_BYTES: Final = 512 * 1024
+
+type ClipWriter = Callable[[bytes], Awaitable[object]]
+"""Receives a clip's muxed bytes in order; awaited before the next chunk is muxed."""
+
+
+class IncompleteReason(StrEnum):
+    """Why a clip is not whole (:attr:`MediaClip.incomplete_reason`)."""
+
+    ENDED_EARLY = "ended_early"
+    """Cut at a video-codec change, or a live capture whose stream ended first."""
+    MISSING_FRAMES = "missing_frames"
+    """Fewer video frames than the history record counts."""
+    NO_END_FRAME = "no_end_frame"
+    """A download that went quiet for its idle wait without the station's
+    end-of-download frame, with no frame count to show it whole."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MediaClip:
+    """What a clip download or capture wrote, and whether it is whole."""
+
+    video_frames: int
+    """Video frames written, the first a keyframe."""
+    audio_frames: int
+    """Audio frames written: the camera's AAC, plus silence before its first frame."""
+    keyframes: int
+    bytes_written: int
+    duration_s: float
+    """From the first to the last video frame written, by the camera's stream clock."""
+    width: int
+    height: int
+    """The last video frame's size."""
+    resizes: int
+    """Picture-size changes the clip carries (a camera's opening ramp, a zoom)."""
+    codec: VideoCodec | None = None
+    """The video codec the clip carries (HEVC, or H.264 from a camera that sends it);
+    None when no video was written. Pick the MP4 sample tag by it: ``hvc1`` for HEVC
+    only (see ``docs/how-to/home-assistant.md``)."""
+    started_at: datetime | None = None
+    """When the first frame was recorded: a recording's history ``started_at``, a live
+    capture's arrival time of its first keyframe (UTC); None when unknown."""
+    device_sn: str | None = None
+    record_id: int | None = None
+    """The history record a download came from; None for a live capture."""
+    expected_frames: int | None = None
+    """A download's video frames by the history record (``frame_num``); None when unknown."""
+    ended_early: bool = False
+    """A live capture whose stream ended before the asked duration, or a clip (capture or
+    download) cut at a video-codec change."""
+    end_frame: bool | None = None
+    """A download (1024): whether the station's end-of-download frame ended it (False: it
+    went quiet for its idle wait). None for a clip with no such frame (a playback, a live
+    capture)."""
+    stopped: bool = False
+    """A live capture ended by its ``stop`` event before the asked duration; it counts
+    as complete."""
+    content_type: str = CLIP_CONTENT_TYPE
+
+    @property
+    def incomplete_reason(self) -> IncompleteReason | None:
+        """Why the clip is not whole, None when it is (:attr:`complete`)."""
+        if self.ended_early:
+            return IncompleteReason.ENDED_EARLY
+        if self.expected_frames is not None:
+            if self.video_frames < self.expected_frames:
+                return IncompleteReason.MISSING_FRAMES
+        elif self.end_frame is False:
+            return IncompleteReason.NO_END_FRAME
+        return None
+
+    @property
+    def complete(self) -> bool:
+        """Whether the clip holds everything it should: a live capture's whole duration;
+        a recording's every frame its record counts, or, with no count, a download the
+        station's end-of-download frame ended."""
+        return self.incomplete_reason is None
+
+
+class _ClipMuxer:
+    """Feed frames, collect chunks; :meth:`flush` writes what is left."""
+
+    def __init__(self, write: ClipWriter, *, chunk_bytes: int = CLIP_CHUNK_BYTES) -> None:
+        self._write = write
+        self._chunk_bytes = chunk_bytes
+        self._encoder = StreamEncoder(
+            audio=True, settle=0.0, follow_resize=True, fill_audio=True, tables_every=100
+        )
+        self._pending = bytearray()
+        self.video_frames = 0
+        self.audio_frames = 0
+        self.keyframes = 0
+        self.bytes_written = 0
+        self.first_ms: int | None = None
+        self.last_ms: int | None = None
+        self.width = 0
+        self.height = 0
+        self.codec_changed = False
+        """A keyframe of another codec arrived: the clip ends before it."""
+
+    @property
+    def started(self) -> bool:
+        return self._encoder.started
+
+    @property
+    def resizes(self) -> int:
+        return self._encoder.resizes
+
+    async def feed(self, frame: MediaFrame) -> None:
+        out = self._encoder.feed(frame)
+        self.codec_changed = out.codec_changed
+        if not out.data:
+            return
+        if frame.kind is MediaKind.VIDEO:
+            self.video_frames += 1
+            self.keyframes += frame.is_keyframe
+            if self.first_ms is None:
+                self.first_ms = frame.timestamp_ms
+            self.last_ms = frame.timestamp_ms
+            self.width, self.height = frame.width, frame.height
+        else:
+            self.audio_frames += 1
+        self._pending += out.data
+        if len(self._pending) >= self._chunk_bytes:
+            await self.flush()
+
+    async def flush(self) -> None:
+        if self._pending:
+            chunk = bytes(self._pending)
+            self._pending.clear()
+            self.bytes_written += len(chunk)
+            await self._write(chunk)
+
+    @property
+    def duration_s(self) -> float:
+        if self.first_ms is None or self.last_ms is None:
+            return 0.0
+        return max(0, self.last_ms - self.first_ms) / 1000
+
+    def clip(
+        self,
+        *,
+        started_at: datetime | None = None,
+        ended_early: bool = False,
+        stopped: bool = False,
+        end_frame: bool | None = None,
+    ) -> MediaClip:
+        return MediaClip(
+            video_frames=self.video_frames,
+            audio_frames=self.audio_frames,
+            keyframes=self.keyframes,
+            bytes_written=self.bytes_written,
+            duration_s=self.duration_s,
+            width=self.width,
+            height=self.height,
+            resizes=self.resizes,
+            codec=self._encoder.codec if self.video_frames else None,
+            started_at=started_at,
+            ended_early=ended_early or self.codec_changed,
+            stopped=stopped,
+            end_frame=end_frame,
+        )
+
+
+async def mux_frames(
+    frames: AsyncIterator[MediaFrame],
+    write: ClipWriter,
+    *,
+    max_ms: int | None = None,
+    chunk_bytes: int = CLIP_CHUNK_BYTES,
+) -> tuple[_ClipMuxer, bool]:
+    """Mux ``frames`` into ``write`` from the first keyframe on, in chunks of at least
+    ``chunk_bytes`` (0: each frame's bytes as soon as it is muxed).
+
+    With ``max_ms`` it stops at the first video frame that many milliseconds of stream
+    clock after the first keyframe (that frame is not written). A keyframe of another
+    codec ends the clip too, before it: one clip carries one codec. Returns the muxer (its
+    counters; its clip is ``ended_early`` after a codec change) and whether ``max_ms`` was
+    reached; the rest is flushed either way.
+    """
+    muxer = _ClipMuxer(write, chunk_bytes=chunk_bytes)
+    reached = False
+    try:
+        async for frame in frames:
+            if (
+                max_ms is not None
+                and frame.kind is MediaKind.VIDEO
+                and muxer.first_ms is not None
+                and frame.timestamp_ms - muxer.first_ms >= max_ms
+            ):
+                reached = True
+                break
+            await muxer.feed(frame)
+            if muxer.codec_changed:
+                break
+    finally:
+        await muxer.flush()
+    return muxer, reached

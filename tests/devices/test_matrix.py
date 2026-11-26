@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-from eufy_home_security.devices.matrix import render_support_matrix
-from eufy_home_security.devices.model_settings import bundled_codes, settings_of
-from eufy_home_security.devices.types import MODELS
+from anker_eufy_security.devices.matrix import render_support_matrix
+from anker_eufy_security.devices.model_settings import bundled_codes, settings_of
+from anker_eufy_security.devices.types import MODELS
 
 ROOT = Path(__file__).resolve().parents[2]
 

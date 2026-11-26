@@ -8,12 +8,12 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from eufy_home_security.exceptions import StationUnreachableError
-from eufy_home_security.p2p import broadcast as broadcast_module
-from eufy_home_security.p2p.broadcast import ResizePolicy, StreamBroadcast
-from eufy_home_security.p2p.encoder import SETTLE_STANDALONE, SETTLE_STATION
-from eufy_home_security.p2p.media import MediaFrame, MediaKind, VideoCodec
-from eufy_home_security.p2p.mpegts import PMT_PID, TS_PACKET_LEN
+from anker_eufy_security.exceptions import StationUnreachableError
+from anker_eufy_security.p2p import broadcast as broadcast_module
+from anker_eufy_security.p2p.broadcast import ResizePolicy, StreamBroadcast
+from anker_eufy_security.p2p.encoder import SETTLE_STANDALONE, SETTLE_STATION
+from anker_eufy_security.p2p.media import MediaFrame, MediaKind, VideoCodec
+from anker_eufy_security.p2p.mpegts import PMT_PID, TS_PACKET_LEN
 from tests.p2p.codec_frames import SWITCHES, coded
 
 

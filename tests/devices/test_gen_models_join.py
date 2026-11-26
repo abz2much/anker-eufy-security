@@ -543,7 +543,7 @@ def test_join_does_not_touch_its_inputs() -> None:
 
 
 def test_generated_t8160_custom_recording_settings_apply_when_mode_is_3() -> None:
-    path = ROOT / "src" / "eufy_home_security" / "devices" / "data" / "models" / "T8160.json"
+    path = ROOT / "src" / "anker_eufy_security" / "devices" / "data" / "models" / "T8160.json"
     doc = json.loads(path.read_text(encoding="utf-8"))
     settings = doc["settings"]
     assert set(doc["source"]) == {"td_version", "handler", "handler_date", "app_version"}
@@ -588,7 +588,7 @@ def test_unmapped_vendor_unit_raises_naming_model_and_identifier(
 
 
 def test_an_unmapped_unit_is_a_generator_error_from_the_librarys_value_error() -> None:
-    from eufy_home_security.devices.settings import SettingUnit  # noqa: PLC0415
+    from anker_eufy_security.devices.settings import SettingUnit  # noqa: PLC0415
 
     assert join.normalise_unit(PN, "x", "音量", 0, 100) == SettingUnit.PERCENT.value
     with pytest.raises(join.GeneratorError) as raised:

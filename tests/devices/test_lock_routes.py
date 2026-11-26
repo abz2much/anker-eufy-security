@@ -10,8 +10,8 @@ from types import ModuleType
 
 import pytest
 
-from eufy_home_security.devices import lock_routes
-from eufy_home_security.devices.lock_routes import LockForm, lock_route
+from anker_eufy_security.devices import lock_routes
+from anker_eufy_security.devices.lock_routes import LockForm, lock_route
 
 ROOT = Path(__file__).resolve().parents[2]
 ROUTES_INPUT = ROOT / ".work" / "tools" / "data" / "lock_routes.json"

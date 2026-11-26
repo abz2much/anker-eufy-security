@@ -9,12 +9,12 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 
-from eufy_home_security.client import EufySecurity
-from eufy_home_security.cloud import const
-from eufy_home_security.cloud.status import LoginNeed
-from eufy_home_security.devices.recipes import SubCommand
-from eufy_home_security.events import Event, SecurityEvent
-from eufy_home_security.exceptions import (
+from anker_eufy_security.client import EufySecurity
+from anker_eufy_security.cloud import const
+from anker_eufy_security.cloud.status import LoginNeed
+from anker_eufy_security.devices.recipes import SubCommand
+from anker_eufy_security.events import Event, SecurityEvent
+from anker_eufy_security.exceptions import (
     CloudApiError,
     CommunicationError,
     LoginLimitedError,
@@ -24,14 +24,14 @@ from eufy_home_security.exceptions import (
     SessionReplacedError,
     StationUnreachableError,
 )
-from eufy_home_security.install import InstallState
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p.messages import RECEIPT_NOT_HANDLED, device_msg
-from eufy_home_security.p2p.pppp import MsgType, decode_packet, encode_packet
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.p2p.xzyh import FrameType
-from eufy_home_security.storage import MemoryStore
-from eufy_home_security.testing import (
+from anker_eufy_security.install import InstallState
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p.messages import RECEIPT_NOT_HANDLED, device_msg
+from anker_eufy_security.p2p.pppp import MsgType, decode_packet, encode_packet
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.p2p.xzyh import FrameType
+from anker_eufy_security.storage import MemoryStore
+from anker_eufy_security.testing import (
     SYNTHETIC,
     FakeCloud,
     FakeStation,
@@ -418,7 +418,7 @@ def test_fake_stations_must_be_started_on_one_port() -> None:
 
 def test_the_doubles_import_nothing_from_a_test_tree() -> None:
     code = (
-        "import sys, eufy_home_security.testing; "
+        "import sys, anker_eufy_security.testing; "
         "print(' '.join(m for m in sys.modules if m == 'tests' or m.startswith('tests.')))"
     )
     out = subprocess.run(
@@ -428,7 +428,7 @@ def test_the_doubles_import_nothing_from_a_test_tree() -> None:
 
 
 async def test_the_fake_cloud_answers_thing_descriptions_for_the_codes_it_knows() -> None:
-    from eufy_home_security.testing.cloud import range_property, thing_description  # noqa: PLC0415
+    from anker_eufy_security.testing.cloud import range_property, thing_description  # noqa: PLC0415
 
     td = thing_description("T9999", [range_property("record_time", 10, 120)])
     cloud = FakeCloud(things={"T9999": td})
@@ -468,7 +468,7 @@ async def test_the_fake_cloud_serves_things_errors_once_each_ahead_of_things_err
 
 
 async def test_the_fake_cloud_issues_its_mqtt_certificate_and_records_each_request() -> None:
-    from eufy_home_security.testing.mqtt import make_mqtt_pki  # noqa: PLC0415
+    from anker_eufy_security.testing.mqtt import make_mqtt_pki  # noqa: PLC0415
 
     pki = make_mqtt_pki()
     cloud = FakeCloud(mqtt_answer=pki.register_answer())

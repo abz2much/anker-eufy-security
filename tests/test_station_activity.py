@@ -9,9 +9,9 @@ from datetime import UTC
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.devices.types import model_for_serial
-from eufy_home_security.events import (
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.devices.types import model_for_serial
+from anker_eufy_security.events import (
     ConnectionChanged,
     DetectedEventsCounted,
     DisconnectCause,
@@ -19,13 +19,13 @@ from eufy_home_security.events import (
     RecordedEventsCounted,
     StationStateChanged,
 )
-from eufy_home_security.models import PARAM_DETECTED_EVENTS, PARAM_RECORDED_EVENTS
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p.messages import STANDALONE_RECEIPT_LEN
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.station import Station, StationState, SubDeviceState
-from eufy_home_security.station.activity import StationActivity
-from eufy_home_security.testing import SYNTHETIC, FakeStation
+from anker_eufy_security.models import PARAM_DETECTED_EVENTS, PARAM_RECORDED_EVENTS
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p.messages import STANDALONE_RECEIPT_LEN
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.station import Station, StationState, SubDeviceState
+from anker_eufy_security.station.activity import StationActivity
+from anker_eufy_security.testing import SYNTHETIC, FakeStation
 
 CAMERA = SYNTHETIC.camera_sn
 STATION = SYNTHETIC.homebase2_station_sn

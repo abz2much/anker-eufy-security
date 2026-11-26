@@ -6,11 +6,11 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.exceptions import CommunicationError
-from eufy_home_security.p2p.did import Did
-from eufy_home_security.p2p.discovery import DiscoveredStation, discover_stations
-from eufy_home_security.p2p.pppp import MsgType, decode_packet, encode_packet
-from eufy_home_security.testing import SYNTHETIC, FakeStation
+from anker_eufy_security.exceptions import CommunicationError
+from anker_eufy_security.p2p.did import Did
+from anker_eufy_security.p2p.discovery import DiscoveredStation, discover_stations
+from anker_eufy_security.p2p.pppp import MsgType, decode_packet, encode_packet
+from anker_eufy_security.testing import SYNTHETIC, FakeStation
 
 
 @pytest.fixture

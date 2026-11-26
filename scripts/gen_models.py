@@ -73,8 +73,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
-from eufy_home_security.devices.garage import GarageDoorState, bound, door_state
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices.garage import GarageDoorState, bound, door_state
+from anker_eufy_security.devices.model_settings import (
     ACCOUNT_SLOT,
     BATTERY_PROPERTY,
     SdStatusGroups,
@@ -83,14 +83,14 @@ from eufy_home_security.devices.model_settings import (
     members_read,
     object_slot,
 )
-from eufy_home_security.devices.param_info import STATE_PARAM_INFO
-from eufy_home_security.devices.settings import DUAL_VIEW, VIEW_MODE_PARAM
-from eufy_home_security.devices.td import UNIT_MEANINGS
-from eufy_home_security.devices.types import DeviceKind, model_for_serial
+from anker_eufy_security.devices.param_info import STATE_PARAM_INFO
+from anker_eufy_security.devices.settings import DUAL_VIEW, VIEW_MODE_PARAM
+from anker_eufy_security.devices.td import UNIT_MEANINGS
+from anker_eufy_security.devices.types import DeviceKind, model_for_serial
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CACHE = ROOT / ".work" / "cache" / "things_all"
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "data" / "models"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "data" / "models"
 INDEX = "INDEX.json"  # {"schema_version", "codes"}: the bundled product codes, sorted
 # {PN: sorted setting keys a release bundled}: a generator input, not package data
 DEFAULT_RELEASED = ROOT / "scripts" / "data" / "released_keys.json"
@@ -1255,8 +1255,8 @@ def garage_block(
     parameter or sends no such write.
 
     Each read is checked at every combination of its bits against the library's reading
-    (:func:`~eufy_home_security.devices.garage.door_state`,
-    :func:`~eufy_home_security.devices.garage.bound`); raises GeneratorError on a
+    (:func:`~anker_eufy_security.devices.garage.door_state`,
+    :func:`~anker_eufy_security.devices.garage.bound`); raises GeneratorError on a
     mismatch or when the contexts disagree.
     """
     declared = {p["identifier"] for p in props}

@@ -3,7 +3,7 @@ from collections.abc import Mapping
 
 import pytest
 
-from eufy_home_security.devices.recipes import (
+from anker_eufy_security.devices.recipes import (
     MAX_PRESET_SLOTS,
     PARENT_CONNECT_TYPES,
     ConnectType,
@@ -24,7 +24,7 @@ from eufy_home_security.devices.recipes import (
     set_default_preset,
     set_picture_zoom,
 )
-from eufy_home_security.exceptions import ProtocolError, UnsupportedError
+from anker_eufy_security.exceptions import ProtocolError, UnsupportedError
 
 
 @pytest.mark.parametrize(("prefix", "expected"), PARENT_CONNECT_TYPES.items())

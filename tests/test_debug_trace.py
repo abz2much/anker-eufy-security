@@ -8,15 +8,20 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.events import EventDeduplicator, EventSource, PushMessageType, SecurityEvent
-from eufy_home_security.exceptions import DeviceTimeoutError, RecordNotFoundError
-from eufy_home_security.models import GuardMode
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.p2p.xzyh import FrameCipher, FrameType
-from eufy_home_security.station import Station
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.events import (
+    EventDeduplicator,
+    EventSource,
+    PushMessageType,
+    SecurityEvent,
+)
+from anker_eufy_security.exceptions import DeviceTimeoutError, RecordNotFoundError
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.p2p.xzyh import FrameCipher, FrameType
+from anker_eufy_security.station import Station
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 from tests.p2p.test_session import Provider, make_session  # the session test double
 
 PUSH_RECORD_ID = 2026091700042
@@ -45,8 +50,8 @@ def assert_no_identifiers(records: list[logging.LogRecord], extra: tuple[str, ..
     ]
 
     for record in records:
-        if record.name.startswith("eufy_home_security") and not record.name.startswith(
-            "eufy_home_security.wire"
+        if record.name.startswith("anker_eufy_security") and not record.name.startswith(
+            "anker_eufy_security.wire"
         ):
             msg = record.getMessage()
             for f in forbidden:
@@ -57,15 +62,15 @@ def filter_caplog(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
     return [
         r
         for r in caplog.records
-        if r.name.startswith("eufy_home_security")
-        and not r.name.startswith("eufy_home_security.wire")
+        if r.name.startswith("anker_eufy_security")
+        and not r.name.startswith("anker_eufy_security.wire")
     ]
 
 
 async def test_a_push_logs_its_cipher_and_type(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
     session = make_session(station, Provider(station))
     try:
         await session.async_get_params()
@@ -89,7 +94,7 @@ async def test_a_push_logs_its_cipher_and_type(
 async def test_a_push_attaching_an_earlier_record_logs_what_was_bound(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
     session = make_session(station, Provider(station))
     try:
         await session.async_get_params()
@@ -142,7 +147,7 @@ async def test_a_push_attaching_an_earlier_record_logs_what_was_bound(
 def test_dedupe_logs_each_drop_and_enrichment_with_its_reason(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
     dedupe = EventDeduplicator()
 
     # The first copy is admitted.
@@ -249,7 +254,7 @@ async def real_station(station: FakeStation) -> AsyncIterator[Station]:
 async def test_the_event_thumbnail_logs_each_history_lookup_outcome(
     station: FakeStation, real_station: Station, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
 
     # Pre-populate station rows
     station.rows = [
@@ -345,7 +350,7 @@ async def test_the_event_thumbnail_logs_each_history_lookup_outcome(
 async def test_a_still_fetch_logs_send_bind_timeout_and_late_reply(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
 
     station.images["/zx/success.jpg"] = b"\xff\xd8SUCCESS"
     station.images["/zx/timeout.jpg"] = b"\xff\xd8TIMEOUT"
@@ -385,7 +390,7 @@ async def test_a_still_fetch_logs_send_bind_timeout_and_late_reply(
 async def test_a_trigger_frame_logs_its_short_lived_session(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
 
     session = make_session(station, Provider(station))
     try:
@@ -414,7 +419,7 @@ async def test_a_trigger_frame_logs_its_short_lived_session(
 async def test_a_command_waiting_for_the_lock_logs_the_wait(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
 
     session = make_session(station, Provider(station))
     try:
@@ -439,7 +444,7 @@ async def test_a_command_waiting_for_the_lock_logs_the_wait(
 async def test_a_live_stream_logs_its_open_and_close(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
 
     session = make_session(station, Provider(station))
     try:
@@ -466,7 +471,7 @@ async def test_a_live_stream_logs_its_open_and_close(
 async def test_frames_are_not_logged_one_by_one(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
 
     session = make_session(station, Provider(station))
     try:

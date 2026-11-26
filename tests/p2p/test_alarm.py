@@ -7,10 +7,10 @@ from datetime import UTC, datetime
 
 import pytest
 
-from eufy_home_security.events import AlarmChanged, AlarmDelayChanged, AlarmStopSource, EventSource
-from eufy_home_security.p2p.alarm import AlarmFrame, decode_alarm_frame
-from eufy_home_security.p2p.xzyh import Frame, FrameCipher, FrameType
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.events import AlarmChanged, AlarmDelayChanged, AlarmStopSource, EventSource
+from anker_eufy_security.p2p.alarm import AlarmFrame, decode_alarm_frame
+from anker_eufy_security.p2p.xzyh import Frame, FrameCipher, FrameType
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def _frame(ftype: int, channel: int) -> Frame:
