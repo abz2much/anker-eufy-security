@@ -174,7 +174,11 @@ def test_the_event_time_is_the_inner_time_the_p2p_copy_carries() -> None:
     )
     assert local is not None
     assert cloud.event_time_ms == local.event_time_ms == created_ms
-    assert cloud.dedupe_key == local.dedupe_key == "unique:0123456789abcdef0123456789abcdef"
+    assert (
+        cloud.dedupe_key
+        == local.dedupe_key
+        == ("unique:0123456789abcdef0123456789abcdef:detection")
+    )
     assert cloud.record_id == 2026091600049
     del inner["unique_id"]
     without_id = decode_push(_message(inner, event_time=outer), now_ms=lambda: NOW_MS)
@@ -584,3 +588,60 @@ def test_a_malformed_doorbell_body_never_raises_and_lifts_no_event_field(doorbel
 def test_a_body_within_the_depth_bound_decodes() -> None:
     event = decode_push({"type": "5", "doorbell": _deep(40)}, now_ms=lambda: NOW_MS)
     assert event.detection is DetectionType.DOORBELL_PRESS
+
+
+def test_a_press_that_reuses_the_detection_unique_id_still_reaches_the_consumer() -> None:
+    # Captured on an E340 (T8214) on a HomeBase 3, 26 Nov 2026 (serials and ids made up):
+    # a recognised face (3111) and, 5.8 s later, a press (3103) carry the same unique_id
+    # and record_id; each arrives over P2P (cmd 2037) and then from the cloud. The press
+    # was dropped as a duplicate of the detection, so the doorbell never rang in HA.
+    shared = {
+        "msg_type": 18,
+        "channel": 0,
+        "device_sn": SYNTHETIC.camera_sn,
+        "unique_id": "0123456789abcdef0123456789abcdef",
+        "record_id": 2026010100042,
+        "push_count": 1,
+        "person_id": 11,
+        "pic_filepath": "/userdata/push/Camera_00-20260101120003AI.jpg",
+    }
+    face_ms, press_ms = 1_789_223_110_413, 1_789_223_120_176
+    face = shared | {
+        "event_type": 3111,
+        "create_time": face_ms,
+        "trigger_time": face_ms,
+        "session_id": "20260101_120003",
+        "pic_content": [{"person_id": -1, "person_recog_flag": 1, "detection_type": 2}],
+    }
+    press = shared | {
+        "event_type": 3103,
+        "create_time": press_ms,
+        "trigger_time": press_ms,
+        "session_id": "20260101_120009",
+        "pic_content": [],
+    }
+
+    def local(inner: dict[str, Any]) -> SecurityEvent:
+        event = decode_camera_push(
+            {"cmd": 2037, "payload": json.dumps(inner)},
+            station_sn=SYNTHETIC.station_sn,
+            now_ms=lambda: NOW_MS,
+        )
+        assert event is not None
+        return event
+
+    def cloud(inner: dict[str, Any]) -> SecurityEvent:
+        outer = str(inner["create_time"] + 3_000)
+        return decode_push(_message(inner, type="94", event_time=outer), now_ms=lambda: NOW_MS)
+
+    dedupe = EventDeduplicator()
+    detection = dedupe.admit(local(face))
+    assert detection is not None
+    assert detection.detection is DetectionType.IDENTITY_PERSON
+    dedupe.admit(cloud(face))  # the detection's own cloud copy: dropped or an enrichment
+
+    ring = dedupe.admit(local(press))
+    assert ring is not None, "the press was dropped as a duplicate of the face detection"
+    assert ring.detection is DetectionType.DOORBELL_PRESS
+    assert not ring.enriches
+    assert dedupe.admit(cloud(press)) is None  # the press's cloud copy is the same press
