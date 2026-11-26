@@ -475,7 +475,7 @@ def test_the_dedupe_key_is_second_granular_and_names_a_detection_not_its_kind() 
 def test_the_dedupe_key_is_the_unique_id_when_there_is_one() -> None:
     p2p = dataclasses.replace(_P2P, unique_id="u-1")
     cloud = dataclasses.replace(_CLOUD, unique_id="u-1", event_time_ms=1_700_000_003_300)
-    assert p2p.dedupe_key == cloud.dedupe_key == "unique:u-1"
+    assert p2p.dedupe_key == cloud.dedupe_key == "unique:u-1:detection"
     dedupe = EventDeduplicator()
     assert dedupe.admit(cloud) is cloud
     enrichment = dedupe.admit(p2p)  # a later second, still the same occurrence
@@ -483,6 +483,22 @@ def test_the_dedupe_key_is_the_unique_id_when_there_is_one() -> None:
     assert enrichment.enriches
     other = dataclasses.replace(p2p, unique_id="u-2")
     assert dedupe.admit(other) is other  # another occurrence in the same second
+
+
+def test_a_unique_id_shared_by_two_kinds_is_two_occurrences() -> None:
+    # A detection reclassified under one unique_id is still one occurrence...
+    person = dataclasses.replace(_P2P, unique_id="u-1")
+    face = dataclasses.replace(_CLOUD, unique_id="u-1", event_type=DetectionType.IDENTITY_PERSON)
+    # ...but a press or a crying alert under that unique_id is an occurrence of its own.
+    press = dataclasses.replace(_P2P, unique_id="u-1", event_type=DetectionType.DOORBELL_PRESS)
+    crying = dataclasses.replace(_P2P, unique_id="u-1", event_type=DetectionType.CRYING)
+    dedupe = EventDeduplicator()
+    assert dedupe.admit(person) is person
+    face_copy = dedupe.admit(face)
+    assert face_copy is None or face_copy.enriches
+    assert dedupe.admit(press) is press
+    assert dedupe.admit(crying) is crying
+    assert dedupe.admit(dataclasses.replace(press, source=EventSource.CLOUD)) is None
 
 
 def test_the_cloud_copy_after_the_p2p_copy_is_dropped() -> None:
@@ -531,7 +547,7 @@ def test_the_dedupe_key_is_the_session_without_a_unique_id() -> None:
     first = dataclasses.replace(_CLOUD, session_id="s-1")
     later = dataclasses.replace(first, event_time_ms=1_700_000_004_000, fetch_id="1a2b")
     assert first.dedupe_key == later.dedupe_key == "session:camera-a:s-1:detection"
-    assert dataclasses.replace(first, unique_id="u-1").dedupe_key == "unique:u-1"
+    assert dataclasses.replace(first, unique_id="u-1").dedupe_key == "unique:u-1:detection"
     assert dataclasses.replace(first, event_time_ms=None).dedupe_key == first.dedupe_key
 
 

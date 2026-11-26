@@ -766,8 +766,8 @@ class SecurityEvent:
     def dedupe_key(self) -> str | None:
         """The occurrence's key, the same on both channels and on every push of it.
 
-        ``unique:<unique_id>`` when the payload carries a ``unique_id`` (both copies of a
-        detection do); else ``session:<device_sn>:<session_id>:<kind>`` when it carries a
+        ``unique:<unique_id>:<kind>`` when the payload carries a ``unique_id`` (both copies
+        of a detection do); else ``session:<device_sn>:<session_id>:<kind>`` when it carries a
         ``session_id`` and is not a doorbell press. Otherwise ``device_sn:event
         second:kind``, None without a device or a time: seconds, because an FCM time
         without an inner time is whole seconds while P2P ``trigger_time`` is
@@ -780,9 +780,13 @@ class SecurityEvent:
         must reach the consumer. Its key is its own event second, which both channels'
         copies share (the cloud decoder takes the inner payload's time, not the outer
         ``event_time``).
+
+        The ``unique_id`` alone is not the occurrence: an E340 doorbell (T8214) press a few
+        seconds after a face detection reuses that detection's ``unique_id`` (live capture,
+        26 Nov 2026), so the kind keeps the press apart from the detection.
         """
         if self.unique_id is not None:
-            return f"unique:{self.unique_id}"
+            return f"unique:{self.unique_id}:{_kind_token(self)}"
         if self.device_sn is None:
             return None
         if self.session_id is not None and self.detection is not DetectionType.DOORBELL_PRESS:
