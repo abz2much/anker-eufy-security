@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from eufy_home_security.mqtt import client
+from anker_eufy_security.mqtt import client
 
 
 def test_the_waits_are_the_apps() -> None:

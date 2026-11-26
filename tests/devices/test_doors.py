@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.devices import capabilities, model_settings
-from eufy_home_security.devices.capabilities import Capability, profile_for_serial
-from eufy_home_security.devices.garage import (
+from anker_eufy_security.devices import capabilities, model_settings
+from anker_eufy_security.devices.capabilities import Capability, profile_for_serial
+from anker_eufy_security.devices.garage import (
     COMMAND_TYPES,
     DOORS,
     GarageAction,
@@ -27,7 +27,7 @@ from eufy_home_security.devices.garage import (
     parse_bits,
     state_notify_bits,
 )
-from eufy_home_security.devices.locks import (
+from anker_eufy_security.devices.locks import (
     CODE_STATES,
     LOCK_OFFLINE_EVENT,
     PUSH_STATES,
@@ -35,8 +35,8 @@ from eufy_home_security.devices.locks import (
     lock_evidence,
     state_of_code,
 )
-from eufy_home_security.devices.model_settings import GarageParams
-from eufy_home_security.devices.support import Support
+from anker_eufy_security.devices.model_settings import GarageParams
+from anker_eufy_security.devices.support import Support
 
 ENTRY = {"access": "ro", "kind": "bool", "read": None, "section": "other", "role": "status"}
 LOCK = {"param": 1912, "contexts": {"standalone": 6000}}

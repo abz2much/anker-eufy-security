@@ -12,17 +12,17 @@ from typing import Any, Final
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.devices.garage import GarageDoor, GarageDoorSource, GarageDoorState
-from eufy_home_security.devices.locks import LockReading, LockState, LockStateSource
-from eufy_home_security.events import (
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.devices.garage import GarageDoor, GarageDoorSource, GarageDoorState
+from anker_eufy_security.devices.locks import LockReading, LockState, LockStateSource
+from anker_eufy_security.events import (
     Event,
     EventSource,
     GarageDoorChanged,
     LockStateChanged,
     SecurityEvent,
 )
-from eufy_home_security.exceptions import (
+from anker_eufy_security.exceptions import (
     CommandRejectedError,
     DeviceBusyError,
     DeviceTimeoutError,
@@ -30,16 +30,16 @@ from eufy_home_security.exceptions import (
     DoorStateUnknownError,
     UnsupportedError,
 )
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p.did import static_key
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.p2p.session.param_state import ParamOrigin
-from eufy_home_security.p2p.xzyh import FrameType
-from eufy_home_security.station import Station
-from eufy_home_security.station import garage as garage_module
-from eufy_home_security.station.locks import LOCK_PUSH_MAX_AGE_SECONDS, LOCK_REPORT_SLACK_SECONDS
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p.did import static_key
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.p2p.session.param_state import ParamOrigin
+from anker_eufy_security.p2p.xzyh import FrameType
+from anker_eufy_security.station import Station
+from anker_eufy_security.station import garage as garage_module
+from anker_eufy_security.station.locks import LOCK_PUSH_MAX_AGE_SECONDS, LOCK_REPORT_SLACK_SECONDS
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 
 pytestmark = pytest.mark.usefixtures("door_models")
 

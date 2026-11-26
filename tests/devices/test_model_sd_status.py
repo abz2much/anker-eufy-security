@@ -9,13 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.devices import model_settings
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices import model_settings
+from anker_eufy_security.devices.model_settings import (
     SdStatusGroups,
     SdStatusSource,
     sd_status_groups,
 )
-from eufy_home_security.exceptions import ModelDataError
+from anker_eufy_security.exceptions import ModelDataError
 
 GOOD_ENTRY = {"access": "ro", "kind": "bool", "read": None, "section": "other", "role": "status"}
 GROUPS = {"codes": {"0": 0, "4": 2, "-5": 3}, "default": 1, "from": "answer"}

@@ -10,15 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.devices import model_settings
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices import model_settings
+from anker_eufy_security.devices.model_settings import (
     GarageParams,
     LockStateRead,
     garage_params,
     lock_state_read,
 )
-from eufy_home_security.devices.recipes import ConnectType
-from eufy_home_security.exceptions import ModelDataError
+from anker_eufy_security.devices.recipes import ConnectType
+from anker_eufy_security.exceptions import ModelDataError
 
 GOOD_ENTRY = {"access": "ro", "kind": "bool", "read": None, "section": "other", "role": "status"}
 LOCK = {"param": 1912, "contexts": {"standalone": 6000}}

@@ -15,15 +15,15 @@ from typing import Any, cast
 
 import pytest
 
-from eufy_home_security.exceptions import (
+from anker_eufy_security.exceptions import (
     CommunicationError,
     ProtocolError,
     StationUnreachableError,
 )
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p import transport as transport_module
-from eufy_home_security.p2p.did import Did
-from eufy_home_security.p2p.pppp import (
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p import transport as transport_module
+from anker_eufy_security.p2p.did import Did
+from anker_eufy_security.p2p.pppp import (
     DrwChunk,
     MsgType,
     decode_packet,
@@ -34,7 +34,7 @@ from eufy_home_security.p2p.pppp import (
     encode_packet,
     encode_sockaddr,
 )
-from eufy_home_security.p2p.transport import (
+from anker_eufy_security.p2p.transport import (
     ACKED_MEMORY,
     P2P_REQ_PORTS,
     RENDEZVOUS_PORT,
@@ -44,7 +44,7 @@ from eufy_home_security.p2p.transport import (
     StationClosedLinkError,
     Wake,
 )
-from eufy_home_security.testing import SYNTHETIC, FakeStation
+from anker_eufy_security.testing import SYNTHETIC, FakeStation
 
 PEER = ("127.0.0.1", 40000)
 
@@ -1157,7 +1157,7 @@ LAN_SOURCE = ("192.0.2.60", 4000)
 CGNAT_SOURCE = ("100.64.0.60", 4000)
 """A LAN numbered from the shared address space."""
 PUBLIC_SOURCE = ("192.88.99.60", 4000)
-"""Not a LAN address (:func:`~eufy_home_security.p2p.pppp.is_lan_address`)."""
+"""Not a LAN address (:func:`~anker_eufy_security.p2p.pppp.is_lan_address`)."""
 
 
 @pytest.mark.parametrize(

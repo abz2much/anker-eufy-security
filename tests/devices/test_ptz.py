@@ -8,15 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.devices import ptz
-from eufy_home_security.devices.ptz import (
+from anker_eufy_security.devices import ptz
+from anker_eufy_security.devices.ptz import (
     PTZ_IDENTIFIERS,
     PtzForm,
     has_ptz_recipes,
     ptz_actions,
     ptz_form,
 )
-from eufy_home_security.devices.recipes import PARENT_CONNECT_TYPES, ConnectType, PtzAction
+from anker_eufy_security.devices.recipes import PARENT_CONNECT_TYPES, ConnectType, PtzAction
 
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = ROOT / ".work" / "cache" / "things_all"

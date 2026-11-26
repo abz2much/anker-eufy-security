@@ -11,9 +11,9 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from eufy_home_security import events
-from eufy_home_security._logging import LogThrottle
-from eufy_home_security.events import (
+from anker_eufy_security import events
+from anker_eufy_security._logging import LogThrottle
+from anker_eufy_security.events import (
     NAME_MAX,
     AlarmPhase,
     ArmingSource,
@@ -23,9 +23,9 @@ from eufy_home_security.events import (
     PushMessageType,
     SecurityEvent,
 )
-from eufy_home_security.models import FrameCipher
-from eufy_home_security.p2p.notify import decode_camera_push, is_command_result, stamped_accounts
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.models import FrameCipher
+from anker_eufy_security.p2p.notify import decode_camera_push, is_command_result, stamped_accounts
+from anker_eufy_security.testing import SYNTHETIC
 
 OTHER_CAMERA_SN = "T8160P2000011111"
 NOW_MS = 1_789_130_470_000
@@ -307,7 +307,7 @@ def test_clock_skew_is_logged_once(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(events, "_SKEW_LOG", LogThrottle(interval=float("inf")))
-    with caplog.at_level(logging.WARNING, logger="eufy_home_security.events"):
+    with caplog.at_level(logging.WARNING, logger="anker_eufy_security.events"):
         for _ in range(3):
             _decode(_payload(trigger_time=NOW_MS + 3_600_000))
     assert len([r for r in caplog.records if "ahead of the host clock" in r.message]) == 1

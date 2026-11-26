@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.devices import device_alarm
-from eufy_home_security.devices.device_alarm import DeviceAlarm, DeviceAlarms, device_alarms
-from eufy_home_security.devices.recipes import ConnectType
+from anker_eufy_security.devices import device_alarm
+from anker_eufy_security.devices.device_alarm import DeviceAlarm, DeviceAlarms, device_alarms
+from anker_eufy_security.devices.recipes import ConnectType
 
 
 def _alarms(code: str, connect: ConnectType = ConnectType.HB3) -> DeviceAlarms:

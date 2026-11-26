@@ -12,7 +12,7 @@
   Cloud login and push work from anywhere.
 - If the host or the network filters inbound UDP: a fixed IP for each station (a DHCP
   reservation), and either all UDP from the station allowed, or one pinned local port
-  per station (`local_ports=`) allowed. `eufy-security network` prints what each of
+  per station (`local_ports=`) allowed. `anker-eufy-security network` prints what each of
   your stations needs. A station on the host's own network whose replies a host
   firewall drops still connects: its rendezvous servers name its LAN address, the
   client punches it, and the link runs over the LAN (`"lan"`) while its
@@ -29,8 +29,8 @@
 ## Install
 
 ```
-uv add eufy-home-security                            # or: pip install eufy-home-security
-uv add "eufy-home-security[mqtt]"                    # with the MQTT transport (Wi-Fi locks)
+uv add anker-eufy-security                            # or: pip install anker-eufy-security
+uv add "anker-eufy-security[mqtt]"                    # with the MQTT transport (Wi-Fi locks)
 ```
 
 ## Log in and read a station
@@ -40,7 +40,7 @@ import asyncio
 
 import aiohttp
 
-from eufy_home_security import EufySecurity, JsonFileStore, LoginChallengeError
+from anker_eufy_security import EufySecurity, JsonFileStore, LoginChallengeError
 
 
 async def main() -> None:
@@ -83,7 +83,7 @@ await station.async_set_setting("detection_sensitivity", 4, device_sn=camera_sn)
 ```
 
 Setting keys are eufy's own identifiers for the model (`station.settings_for(camera_sn)`
-lists them, `eufy-security settings --model T8160` prints them). Arming returns once
+lists them, `anker-eufy-security settings --model T8160` prints them). Arming returns once
 the station has confirmed the mode. A setting write returns a `CommandOutcome`:
 `APPLIED` when the station answered, `DELIVERED` when it only acknowledged the
 datagram; the next parameter dump shows the value. Otherwise it raises:
@@ -102,7 +102,7 @@ What each model supports, how well it is proven, and every model's settings are 
 ## Events
 
 ```python
-from eufy_home_security import GuardModeChanged, SecurityEvent
+from anker_eufy_security import GuardModeChanged, SecurityEvent
 
 
 def on_event(event) -> None:
@@ -133,7 +133,7 @@ Run both. Sessions reconnect on their own; `ConnectionChanged` reports it.
 - Pass HA's shared session (`async_get_clientsession(hass)`) and a
   `homeassistant.helpers.storage.Store` — it already has the `async_load` /
   `async_save` shape the library expects.
-- List `"loggers": ["eufy_home_security"]` in `manifest.json`.
+- List `"loggers": ["anker_eufy_security"]` in `manifest.json`.
 - Map `AuthenticationError` → reauth, `CommunicationError` → retry/unavailable,
   `LoginChallengeError` → a config-flow step asking for the code.
 
@@ -142,11 +142,11 @@ Run both. Sessions reconnect on their own; `ConnectionChanged` reports it.
 The same API as a tool, for trying things out and verifying devices:
 
 ```
-eufy-security login
-eufy-security status
-eufy-security guard set home
-eufy-security settings
-eufy-security monitor
+anker-eufy-security login
+anker-eufy-security status
+anker-eufy-security guard set home
+anker-eufy-security settings
+anker-eufy-security monitor
 ```
 
-`eufy-security --help` lists everything.
+`anker-eufy-security --help` lists everything.

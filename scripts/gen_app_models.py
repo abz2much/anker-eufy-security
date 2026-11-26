@@ -1,4 +1,4 @@
-"""Generate ``src/eufy_home_security/devices/app_models.py`` from the eufy app's product tables.
+"""Generate ``src/anker_eufy_security/devices/app_models.py`` from the eufy app's product tables.
 
 Four source files of the eufy Security app (build ``--app-version``) name the products:
 the device configuration (``device_configuration.json``: per product code its parent in
@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "app_models.py"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "app_models.py"
 #: The share of ``--out``'s rows a run must keep without ``--allow-shrink``.
 SHRINK_MARGIN = 0.9
 PREFIX = re.compile(r"T[0-9A-Z]{4}")

@@ -15,9 +15,9 @@ from aioresponses import CallbackResult, aioresponses
 from firebase_messaging.const import FCM_INSTALLATION, GCM_CHECKIN_URL, GCM_REGISTER_URL
 from firebase_messaging.proto.checkin_pb2 import AndroidCheckinResponse
 
-from eufy_home_security.push import const as push_const
-from eufy_home_security.storage import MemoryStore, SessionCache
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.push import const as push_const
+from anker_eufy_security.storage import MemoryStore, SessionCache
+from anker_eufy_security.testing import SYNTHETIC
 
 FAKE_ANDROID_ID = 1234567890123456789
 FAKE_SECURITY_TOKEN = 987654321098765432

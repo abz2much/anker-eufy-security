@@ -14,9 +14,9 @@ A station reports what happens at the house on two independent channels:
 | stills | 640×360 thumbnail, crop, 4K from the recording ([media.md](media.md)) | encrypted `pic_url` thumbnail **[app]** |
 | off-LAN | through a session over the rendezvous servers ([p2p-transport.md](p2p-transport.md)) | yes |
 
-Code: `src/eufy_home_security/p2p/notify.py` (P2P push decode), `p2p/alarm.py`
+Code: `src/anker_eufy_security/p2p/notify.py` (P2P push decode), `p2p/alarm.py`
 (alarm frames), `p2p/params.py` (dumps), `p2p/session/` (probe and supervision),
-`src/eufy_home_security/push/fcm.py`, `push/decode.py` and `push/const.py` (FCM),
+`src/anker_eufy_security/push/fcm.py`, `push/decode.py` and `push/const.py` (FCM),
 `events.py` (ordering, alarm tracking, de-duplication).
 
 ## Local P2P push **[verified]**

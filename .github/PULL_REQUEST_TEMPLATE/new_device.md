@@ -27,11 +27,11 @@ Everything else stays "declared" (from the eufy app) or "unknown". -->
 | | verified / declared / unknown | e.g. write 3 → read back 3 → restored |
 
 <details>
-<summary>Output of <code>eufy-security coverage</code> and <code>status --raw</code> (serials masked)</summary>
+<summary>Output of <code>anker-eufy-security coverage</code> and <code>status --raw</code> (serials masked)</summary>
 
 ```
-eufy-security --redact-serials coverage
-eufy-security --redact-serials status --raw
+anker-eufy-security --redact-serials coverage
+anker-eufy-security --redact-serials status --raw
 ```
 
 </details>

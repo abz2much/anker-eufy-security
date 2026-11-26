@@ -6,14 +6,14 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.devices.garage import GarageDoorState
-from eufy_home_security.exceptions import DeviceTimeoutError
-from eufy_home_security.p2p.did import static_key
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.station import Station
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.devices.garage import GarageDoorState
+from anker_eufy_security.exceptions import DeviceTimeoutError
+from anker_eufy_security.p2p.did import static_key
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.station import Station
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 
 GARAGE_SN = "T8453P2000000001"
 CLOSED_BOTH = "10"  # door 1 closed (2), door 2 closed (8)

@@ -4,10 +4,10 @@ from collections.abc import Iterator
 
 import pytest
 
-from eufy_home_security._logging import set_secret_logging
-from eufy_home_security.devices.param_info import param_info
-from eufy_home_security.devices.settings import Scope
-from eufy_home_security.models import PARAM_DEVICE_NAME, STATION_CHANNEL
+from anker_eufy_security._logging import set_secret_logging
+from anker_eufy_security.devices.param_info import param_info
+from anker_eufy_security.devices.settings import Scope
+from anker_eufy_security.models import PARAM_DEVICE_NAME, STATION_CHANNEL
 
 
 @pytest.fixture

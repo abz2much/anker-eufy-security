@@ -14,15 +14,15 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from eufy_home_security.exceptions import (
+from anker_eufy_security.exceptions import (
     ProtocolError,
     UnsupportedError,
     VideoEncryptedPictureError,
 )
-from eufy_home_security.p2p import crypto, media
-from eufy_home_security.p2p.xzyh import Frame, FrameCipher, FrameType
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing import station as testing_station
+from anker_eufy_security.p2p import crypto, media
+from anker_eufy_security.p2p.xzyh import Frame, FrameCipher, FrameType
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing import station as testing_station
 
 
 def test_generate_media_rsa_key() -> None:

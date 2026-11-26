@@ -1,11 +1,11 @@
 """Generate ``devices/_ptz_data.py``: which library pan/tilt/zoom recipe each product's handler asks for.
 
 For every cached product whose thing description declares an action of
-:data:`~eufy_home_security.devices.ptz.PTZ_IDENTIFIERS`, the vendor handler runs offline
+:data:`~anker_eufy_security.devices.ptz.PTZ_IDENTIFIERS`, the vendor handler runs offline
 (``scripts/thing_models.py`` harness, Node) standalone and behind each station kind of
 ``PARENT_CONNECT_TYPES``, with the inputs the app gives it, under two firmware versions.
 Each recipe is compared with the library's builders in every
-:class:`~eufy_home_security.devices.ptz.PtzForm`; the file records, per product, declared
+:class:`~anker_eufy_security.devices.ptz.PtzForm`; the file records, per product, declared
 action and connect type, the form whose recipe equals the handler's for every input, or
 null when none does. Runs on a maintainer host only; nothing at runtime executes vendor
 code.
@@ -29,10 +29,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from eufy_home_security.devices import recipes
-from eufy_home_security.devices.model_settings import product_code_of
-from eufy_home_security.devices.ptz import PTZ_IDENTIFIERS, PtzForm
-from eufy_home_security.devices.recipes import (
+from anker_eufy_security.devices import recipes
+from anker_eufy_security.devices.model_settings import product_code_of
+from anker_eufy_security.devices.ptz import PTZ_IDENTIFIERS, PtzForm
+from anker_eufy_security.devices.recipes import (
     HANDLER_UNUSED_KEYS,
     PARENT_CONNECT_TYPES,
     ConnectType,
@@ -42,7 +42,7 @@ from eufy_home_security.devices.recipes import (
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CACHE = ROOT / ".work" / "cache" / "things_all"
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "_ptz_data.py"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "_ptz_data.py"
 APP_VERSION = "6.1.10"  # the app build whose handlers the cache holds
 CHANNEL = 1
 #: Firmware versions each request is run with; a form must hold under both.

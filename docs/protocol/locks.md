@@ -2,7 +2,7 @@
 
 How a lock or unlock command is encoded for a eufy smart lock, per lock family, and how the
 lock's answer is read. The library holds these as pure codecs
-(`eufy_home_security.lock_commands`) and the choice of form as generated data
+(`anker_eufy_security.lock_commands`) and the choice of form as generated data
 (`devices.lock_routes`); nothing in the library sends a lock command yet.
 
 **Grade: declared (eufy app); not tested on hardware.** Every byte below follows the eufy

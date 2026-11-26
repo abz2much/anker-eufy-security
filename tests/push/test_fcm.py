@@ -26,10 +26,10 @@ from cryptography.x509.oid import NameOID
 from firebase_messaging.const import FCM_INSTALLATION, GCM_CHECKIN_URL, GCM_REGISTER_URL
 from firebase_messaging.proto.checkin_pb2 import AndroidCheckinRequest
 
-from eufy_home_security._logging import set_secret_logging
-from eufy_home_security.cloud.api import EufyCloudApi
-from eufy_home_security.events import EventSource, SecurityEvent
-from eufy_home_security.exceptions import (
+from anker_eufy_security._logging import set_secret_logging
+from anker_eufy_security.cloud.api import EufyCloudApi
+from anker_eufy_security.events import EventSource, SecurityEvent
+from anker_eufy_security.exceptions import (
     CloudApiError,
     CloudError,
     CommunicationError,
@@ -37,11 +37,11 @@ from eufy_home_security.exceptions import (
     RateLimitedError,
     SessionReplacedError,
 )
-from eufy_home_security.push import const as push_const
-from eufy_home_security.push import fcm as fcm_module
-from eufy_home_security.push.fcm import PushListener, _EufyFcmPushClient, _fcm_config
-from eufy_home_security.storage import CACHE_VERSION, MemoryStore, SessionCache
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.push import const as push_const
+from anker_eufy_security.push import fcm as fcm_module
+from anker_eufy_security.push.fcm import PushListener, _EufyFcmPushClient, _fcm_config
+from anker_eufy_security.storage import CACHE_VERSION, MemoryStore, SessionCache
+from anker_eufy_security.testing import SYNTHETIC
 
 from .conftest import (
     FAKE_ANDROID_ID,
@@ -124,7 +124,7 @@ async def test_start_registers_android_flavour_and_uploads_token(
 async def test_credentials_are_logged_in_clear_only_with_secret_logging(
     fake_cloud: FakeCloud, cache: SessionCache, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.push")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.push")
     with aioresponses() as mock:
         install_google_mocks(mock)
         async with aiohttp.ClientSession() as session:
@@ -179,7 +179,7 @@ async def test_incoming_message_becomes_an_event() -> None:
 async def test_the_push_line_names_the_classifying_fields_without_the_face_id(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.push")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.push")
     events: list[SecurityEvent] = []
     listener = PushListener(
         cast(EufyCloudApi, FakeCloud()),
@@ -229,7 +229,7 @@ _ARMING = base64.b64encode(json.dumps({"arming": 1, "mode": 1}).encode()).decode
 async def test_the_push_line_names_the_body_field_without_its_content(
     caplog: pytest.LogCaptureFixture, fields: dict[str, str], body: str
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.push")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.push")
     events: list[SecurityEvent] = []
     _bare_listener(_throwaway_cache(), events)._on_message(
         {"type": "5", "span_id": "s1", **fields}, "pid-1", None

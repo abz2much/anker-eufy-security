@@ -14,8 +14,8 @@ from typing import cast
 
 import pytest
 
-from eufy_home_security.devices import model_settings
-from eufy_home_security.devices.model_settings import (
+from anker_eufy_security.devices import model_settings
+from anker_eufy_security.devices.model_settings import (
     BATTERY_DEVICE_FLAG,
     Setting,
     SettingControl,
@@ -34,11 +34,11 @@ from eufy_home_security.devices.model_settings import (
     settings_of,
     unit_meaning,
 )
-from eufy_home_security.devices.param_info import STATE_PARAM_INFO
-from eufy_home_security.devices.recipes import ConnectType
-from eufy_home_security.devices.settings import Scope, SettingUnit, mode_table_setting
-from eufy_home_security.exceptions import ModelDataError, UnsupportedError
-from eufy_home_security.p2p.mode_actions import ACTION_FLAGS, MODE_DELAY_CHOICES
+from anker_eufy_security.devices.param_info import STATE_PARAM_INFO
+from anker_eufy_security.devices.recipes import ConnectType
+from anker_eufy_security.devices.settings import Scope, SettingUnit, mode_table_setting
+from anker_eufy_security.exceptions import ModelDataError, UnsupportedError
+from anker_eufy_security.p2p.mode_actions import ACTION_FLAGS, MODE_DELAY_CHOICES
 
 CHILD = WriteContext(
     standalone=False, channel=3, device_sn="T0000CHILDSN0001", station_sn="T0000STATION0001"

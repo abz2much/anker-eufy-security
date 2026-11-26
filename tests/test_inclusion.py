@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.inclusion import Reach, StationChoice
-from eufy_home_security.network import HostSource, LanPath
-from eufy_home_security.p2p.transport import ConnectPath
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.inclusion import Reach, StationChoice
+from anker_eufy_security.network import HostSource, LanPath
+from anker_eufy_security.p2p.transport import ConnectPath
+from anker_eufy_security.testing import SYNTHETIC
 
 UNKNOWN_MODEL_SN = "T9999P0000000001"
 

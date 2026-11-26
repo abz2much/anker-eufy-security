@@ -12,11 +12,11 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from eufy_home_security.cloud.const import CIPHER_ID_P2P
-from eufy_home_security.exceptions import CipherUnusableError, HandshakeError, ProtocolError
-from eufy_home_security.p2p import crypto
-from eufy_home_security.p2p.did import static_key
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.cloud.const import CIPHER_ID_P2P
+from anker_eufy_security.exceptions import CipherUnusableError, HandshakeError, ProtocolError
+from anker_eufy_security.p2p import crypto
+from anker_eufy_security.p2p.did import static_key
+from anker_eufy_security.testing import SYNTHETIC
 
 _KEY16 = b"0012345-123456-A"
 _KEY32 = b"VbuNh~k8kycVPEdtKOwn17Dj3eMuzvu4"

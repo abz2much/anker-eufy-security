@@ -14,7 +14,7 @@ from typing import Any
 
 from gen_models_codec import GeneratorError
 
-from eufy_home_security.devices.sections import OTHER_SECTION, SETTING_SECTIONS
+from anker_eufy_security.devices.sections import OTHER_SECTION, SETTING_SECTIONS
 
 __all__ = ["KEY_RULES", "PAGE_SECTIONS", "STATION_RULES", "assign", "section_of"]
 

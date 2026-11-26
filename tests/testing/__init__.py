@@ -1,1 +1,1 @@
-"""Tests for eufy_home_security.testing."""
+"""Tests for anker_eufy_security.testing."""

@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices import model_settings
+from anker_eufy_security.devices import model_settings
 
 from .routing_input import library_routing
 

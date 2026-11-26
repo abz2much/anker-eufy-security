@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.models import PARAM_WIFI_RSSI, GuardMode
+from anker_eufy_security.models import PARAM_WIFI_RSSI, GuardMode
 
 
 @pytest.mark.parametrize(

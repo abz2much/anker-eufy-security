@@ -10,17 +10,17 @@ from typing import Any
 
 import pytest
 
-import eufy_home_security.p2p.session as session_module
-from eufy_home_security.exceptions import (
+import anker_eufy_security.p2p.session as session_module
+from anker_eufy_security.exceptions import (
     CommunicationError,
     SessionReplacedError,
     StationUnreachableError,
 )
-from eufy_home_security.p2p import netif
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.p2p.transport import ConnectPath, PPPPTransport, Wake
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.p2p import netif
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.p2p.transport import ConnectPath, PPPPTransport, Wake
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 
 WAKE = Wake(servers=("192.0.2.1",), dsk="x" * 8)
 
@@ -317,7 +317,7 @@ async def test_a_held_station_without_rendezvous_material_logs_a_lan_only_attemp
     station: FakeStation, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     Attempts(monkeypatch)
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.p2p.session")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.p2p.session")
     session = _session(station, WakeSource())
     try:
         await session.async_connect()
@@ -513,7 +513,7 @@ async def test_the_link_log_names_the_peer_and_the_path(
         did=SYNTHETIC.did,
         wake_provider=WakeSource(),
     )
-    caplog.set_level(logging.INFO, logger="eufy_home_security.p2p.session")
+    caplog.set_level(logging.INFO, logger="anker_eufy_security.p2p.session")
     try:
         await session.async_connect()
     finally:

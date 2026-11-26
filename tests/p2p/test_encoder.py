@@ -6,9 +6,9 @@ import logging
 
 import pytest
 
-from eufy_home_security.p2p.encoder import SILENT_AAC_FRAME, SILENT_AAC_FRAME_MS, StreamEncoder
-from eufy_home_security.p2p.media import MediaFrame, MediaKind, VideoCodec
-from eufy_home_security.p2p.mpegts import AUDIO_PID, TS_PACKET_LEN
+from anker_eufy_security.p2p.encoder import SILENT_AAC_FRAME, SILENT_AAC_FRAME_MS, StreamEncoder
+from anker_eufy_security.p2p.media import MediaFrame, MediaKind, VideoCodec
+from anker_eufy_security.p2p.mpegts import AUDIO_PID, TS_PACKET_LEN
 from tests.p2p.codec_frames import SWITCHES, coded, readable_nal_units, video_pes_payloads
 
 
@@ -224,9 +224,9 @@ def test_video_without_a_start_code_is_dropped_and_logged_once(
     assert not enc.feed(video(keyframe=True, data=b"\x26\x01no-start-code")).started
     assert enc.feed(video(keyframe=True)).started
     tail = video(ms=1040, data=b"P-FRAME!" * 10)
-    with caplog.at_level(logging.WARNING, logger="eufy_home_security.p2p.encoder"):
+    with caplog.at_level(logging.WARNING, logger="anker_eufy_security.p2p.encoder"):
         assert [enc.feed(tail).data for _ in range(2)] == [b"", b""]
-    assert len([r for r in caplog.records if r.name == "eufy_home_security.p2p.encoder"]) == 1
+    assert len([r for r in caplog.records if r.name == "anker_eufy_security.p2p.encoder"]) == 1
     ts = enc.header + enc.feed(video(ms=1080)).data
     units = video_pes_payloads(ts)
     assert len(units) == 2

@@ -6,16 +6,16 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices.model_settings import SettingKind, SettingMeaning, SettingRole
-from eufy_home_security.devices.settings import SettingUnit
-from eufy_home_security.devices.td import (
+from anker_eufy_security.devices.model_settings import SettingKind, SettingMeaning, SettingRole
+from anker_eufy_security.devices.settings import SettingUnit
+from anker_eufy_security.devices.td import (
     LISTED_NOTE,
     normalise_unit,
     parse_thing_description,
     td_meaning,
     td_version,
 )
-from eufy_home_security.testing.cloud import enum_property, range_property, thing_description
+from anker_eufy_security.testing.cloud import enum_property, range_property, thing_description
 
 CODE = "T9999"  # no bundled file
 

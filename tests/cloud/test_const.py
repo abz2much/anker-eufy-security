@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.cloud import const
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.cloud import const
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def test_each_region_has_its_own_security_host() -> None:

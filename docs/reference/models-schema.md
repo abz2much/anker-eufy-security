@@ -1,6 +1,6 @@
 # Settings files (schema v3)
 
-`src/eufy_home_security/devices/data/models/<PN>.json` holds one file per product
+`src/anker_eufy_security/devices/data/models/<PN>.json` holds one file per product
 code (166). Each file lists the model's settings, as the vendor's thing description (TD)
 declares them, with the write and read codecs the vendor's handler
 (`<PN>Handle.mix.js`) gives. `scripts/gen_models.py` generates the files and
@@ -361,7 +361,7 @@ Writing 30 sends `cmd` 1249 with `{"duration": 30}`. Parameter 1249 reads back `
 
 ## At runtime
 
-`eufy_home_security.devices.model_settings` loads a file on the first request for its
+`anker_eufy_security.devices.model_settings` loads a file on the first request for its
 product code and turns each entry into a `Setting`:
 
 | `Setting` field | From |

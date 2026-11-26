@@ -28,8 +28,8 @@ from typing import Any
 
 from gen_models_codec import GeneratorError
 
-from eufy_home_security.devices.model_settings import ACCOUNT_SLOT
-from eufy_home_security.p2p import messages
+from anker_eufy_security.devices.model_settings import ACCOUNT_SLOT
+from anker_eufy_security.p2p import messages
 
 NOT_SENT_NOTE = "the eufy app sends nothing for this write"
 SCREEN_OBJECT_NOTE = (

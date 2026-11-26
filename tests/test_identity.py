@@ -6,9 +6,9 @@ import logging
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.identity import StationClaims, entity_unique_id
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.identity import StationClaims, entity_unique_id
+from anker_eufy_security.testing import SYNTHETIC
 
 OTHER_STATION_SN = "T8030P2000054321"
 OWNER = "owner@example.com"

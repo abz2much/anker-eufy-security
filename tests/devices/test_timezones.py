@@ -13,7 +13,7 @@ from types import ModuleType
 
 import pytest
 
-from eufy_home_security.devices.timezones import (
+from anker_eufy_security.devices.timezones import (
     decode_zone,
     encode_zone,
     time_zones,
@@ -21,7 +21,7 @@ from eufy_home_security.devices.timezones import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-TABLE = ROOT / "src" / "eufy_home_security" / "devices" / "data" / "timezones.json"
+TABLE = ROOT / "src" / "anker_eufy_security" / "devices" / "data" / "timezones.json"
 # Every IANA zone name, backward links included, from the tzdata package: the host's own
 # zone files may leave the legacy links out.
 IANA_NAMES = frozenset(files("tzdata").joinpath("zones").read_text("utf-8").split())

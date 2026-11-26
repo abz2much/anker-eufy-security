@@ -2,7 +2,7 @@
 
 The eufy app has no per-device command table. What it sends for a device comes
 from three layers, and the library mirrors the first two as data
-(`eufy_home_security.devices.recipes`).
+(`anker_eufy_security.devices.recipes`).
 
 | Layer | What it is | Where it comes from |
 |---|---|---|
@@ -67,7 +67,7 @@ The golden still records the handler's shape, so a change to it is noticed.
 2. **Goldens**: add the case to `CASES` in `scripts/thing_models.py` (synthetic
    device, fixed payload, the builder's name) and run
    `uv run python scripts/thing_models.py goldens --cache .work/things`.
-3. **Implement** the builder in `src/eufy_home_security/devices/recipes.py` so that
+3. **Implement** the builder in `src/anker_eufy_security/devices/recipes.py` so that
    its `as_handler_dict()` equals the golden minus the unused keys.
 4. **Test**: the golden test picks up the new case; map it to the builder there.
 5. **Verify on hardware**, record it in [hardware-verification.md](hardware-verification.md),

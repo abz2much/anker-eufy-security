@@ -8,7 +8,7 @@ standalone battery camera also needs a [DSK](#device-session-key-dsk) for each w
 and a station LAN discovery does not reach needs one to connect through its rendezvous
 servers.
 
-Code: `src/eufy_home_security/cloud/crypto.py` (pure primitives),
+Code: `src/anker_eufy_security/cloud/crypto.py` (pure primitives),
 `cloud/api.py` (calls), `cloud/const.py` (constants and codes).
 
 ## Hosts

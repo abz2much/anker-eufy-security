@@ -12,7 +12,7 @@ The first role rule that applies decides, from the eufy app's own data:
    through the handler, with no control to show it, leaves the role to the rules below.
 2. ``diagnostic``: it is read from, or the handler fills it from, a parameter whose
    value the library already reports
-   (:data:`~eufy_home_security.devices.param_info.STATE_PARAM_INFO`), so a consumer has
+   (:data:`~anker_eufy_security.devices.param_info.STATE_PARAM_INFO`), so a consumer has
    the value from the device already.
 3. ``setting``: the thing description declares it writable and the app does not list it
    as a status it only reads: the app's control, for which the library has no write.
@@ -34,7 +34,7 @@ import re
 from collections.abc import Collection, Iterator, Mapping
 from typing import Any
 
-from eufy_home_security.devices.model_settings import SettingRole, SettingShown
+from anker_eufy_security.devices.model_settings import SettingRole, SettingShown
 
 __all__ = ["CARD", "DIAGNOSTIC", "PAGE", "SETTING", "STATUS", "assign", "role_of", "shown_of"]
 

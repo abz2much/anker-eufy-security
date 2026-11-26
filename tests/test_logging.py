@@ -10,7 +10,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from eufy_home_security._logging import (
+from anker_eufy_security._logging import (
     IDENTIFYING_KEY_SUFFIXES,
     IDENTIFYING_KEYS,
     LOCATION_KEY_SUFFIXES,
@@ -32,8 +32,8 @@ from eufy_home_security._logging import (
     set_wire_logging,
     wire_logger,
 )
-from eufy_home_security.devices.model_settings import settings_of
-from eufy_home_security.p2p._json import MAX_JSON_DEPTH
+from anker_eufy_security.devices.model_settings import settings_of
+from anker_eufy_security.p2p._json import MAX_JSON_DEPTH
 
 
 def test_secrets_render_redacted_until_secret_logging_is_on() -> None:
@@ -59,14 +59,14 @@ def test_secrets_render_redacted_until_secret_logging_is_on() -> None:
 
 
 def test_package_debug_does_not_enable_wire_dumps() -> None:
-    logging.getLogger("eufy_home_security").setLevel(logging.DEBUG)
+    logging.getLogger("anker_eufy_security").setLevel(logging.DEBUG)
     try:
         assert not wire_logger("p2p").isEnabledFor(logging.DEBUG)
         set_wire_logging(True)
         assert wire_logger("p2p").isEnabledFor(logging.DEBUG)
     finally:
         set_wire_logging(False)
-        logging.getLogger("eufy_home_security").setLevel(logging.NOTSET)
+        logging.getLogger("anker_eufy_security").setLevel(logging.NOTSET)
 
 
 def test_hexdump_renders_lazily_and_truncates() -> None:
@@ -137,8 +137,8 @@ def test_throttle_still_suppresses_a_repeat_after_eviction() -> None:
 def test_import_keeps_an_application_configured_wire_level() -> None:
     """Home Assistant sets ``logger:`` levels before importing the library."""
     code = (
-        "import logging; logging.getLogger('eufy_home_security.wire').setLevel(logging.DEBUG); "
-        "import eufy_home_security._logging as l; print(l.WIRE_LOGGER.level)"
+        "import logging; logging.getLogger('anker_eufy_security.wire').setLevel(logging.DEBUG); "
+        "import anker_eufy_security._logging as l; print(l.WIRE_LOGGER.level)"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == str(logging.DEBUG)

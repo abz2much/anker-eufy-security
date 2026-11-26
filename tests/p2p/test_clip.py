@@ -6,8 +6,8 @@ import dataclasses
 
 import pytest
 
-from eufy_home_security.p2p.clip import CLIP_CHUNK_BYTES, IncompleteReason, MediaClip, mux_frames
-from eufy_home_security.p2p.media import MediaFrame, VideoCodec
+from anker_eufy_security.p2p.clip import CLIP_CHUNK_BYTES, IncompleteReason, MediaClip, mux_frames
+from anker_eufy_security.p2p.media import MediaFrame, VideoCodec
 from tests.p2p.codec_frames import coded
 
 

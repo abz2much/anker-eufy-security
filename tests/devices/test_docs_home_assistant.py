@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.devices.model_settings import settings_of
-from eufy_home_security.devices.sections import SETTING_SECTIONS
-from eufy_home_security.devices.settings import MODE_ACTION_LABELS
-from eufy_home_security.devices.td import LISTED_NOTE
+from anker_eufy_security.devices.model_settings import settings_of
+from anker_eufy_security.devices.sections import SETTING_SECTIONS
+from anker_eufy_security.devices.settings import MODE_ACTION_LABELS
+from anker_eufy_security.devices.td import LISTED_NOTE
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "how-to" / "home-assistant.md"
 TEXT = DOC.read_text(encoding="utf-8")

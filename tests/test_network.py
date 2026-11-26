@@ -6,9 +6,9 @@ from dataclasses import replace
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.models import PARAM_LAN_IP
-from eufy_home_security.network import (
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.models import PARAM_LAN_IP
+from anker_eufy_security.network import (
     FIRST_SUGGESTED_LOCAL_PORT,
     HostSource,
     LanPath,
@@ -20,10 +20,10 @@ from eufy_home_security.network import (
     suggest_local_ports,
     with_discovery,
 )
-from eufy_home_security.p2p.did import Did
-from eufy_home_security.p2p.discovery import DiscoveredStation
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.cloud import station_device
+from anker_eufy_security.p2p.did import Did
+from anker_eufy_security.p2p.discovery import DiscoveredStation
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.cloud import station_device
 
 OTHER_DID = "EUPRAMA-654321-ABCDE"
 

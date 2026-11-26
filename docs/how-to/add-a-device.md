@@ -1,6 +1,6 @@
 # Add or verify a device
 
-Support is data in `src/eufy_home_security/devices/`. Adding hardware means adding
+Support is data in `src/anker_eufy_security/devices/`. Adding hardware means adding
 entries with honest evidence, never special-casing a model in code. Models and
 capabilities carry a support grade; settings come from the generated per-model files
 and carry none.
@@ -127,11 +127,11 @@ product whose serial differs from its siblings' only past the prefix gets a rule
 With a station on your LAN:
 
 ```
-eufy-security settings --model T8XXX         # the model's settings
-eufy-security coverage                       # does this unit report its model's settings?
-eufy-security status --raw                   # every param, before
-eufy-security set <key> <value> --device <serial>
-eufy-security status --raw                   # after: does the param move?
+anker-eufy-security settings --model T8XXX         # the model's settings
+anker-eufy-security coverage                       # does this unit report its model's settings?
+anker-eufy-security status --raw                   # every param, before
+anker-eufy-security set <key> <value> --device <serial>
+anker-eufy-security status --raw                   # after: does the param move?
 ```
 
 Only when the write lands **and** reads back, record it in

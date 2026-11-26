@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.exceptions import ProtocolError
-from eufy_home_security.lock_commands import actions
+from anker_eufy_security.exceptions import ProtocolError
+from anker_eufy_security.lock_commands import actions
 
 
 def test_serial_iv_zero_pads_the_serial_to_16_bytes() -> None:

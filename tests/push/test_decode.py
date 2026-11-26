@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.events import (
+from anker_eufy_security.events import (
     AlarmPhase,
     ArmingSource,
     DetectionType,
@@ -19,10 +19,10 @@ from eufy_home_security.events import (
     PushMessageType,
     SecurityEvent,
 )
-from eufy_home_security.models import FrameCipher
-from eufy_home_security.p2p.notify import decode_camera_push
-from eufy_home_security.push.decode import SERVER_PUSH_MIN_TYPE, decode_push, is_security_push
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.models import FrameCipher
+from anker_eufy_security.p2p.notify import decode_camera_push
+from anker_eufy_security.push.decode import SERVER_PUSH_MIN_TYPE, decode_push, is_security_push
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def _message(payload: dict[str, Any], **outer: str) -> dict[str, Any]:

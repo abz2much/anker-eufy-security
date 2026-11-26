@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from eufy_home_security.devices import live_open
-from eufy_home_security.devices.live_open import (
+from anker_eufy_security.devices import live_open
+from anker_eufy_security.devices.live_open import (
     NVR_OPENS,
     LiveOpen,
     LiveStop,
@@ -17,7 +17,7 @@ from eufy_home_security.devices.live_open import (
     library_live_open,
     live_stop,
 )
-from eufy_home_security.devices.recipes import PARENT_CONNECT_TYPES, ConnectType
+from anker_eufy_security.devices.recipes import PARENT_CONNECT_TYPES, ConnectType
 
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = ROOT / ".work" / "cache" / "things_all"

@@ -1,4 +1,4 @@
-"""``eufy-security mqtt``: list the MQTT devices; ``--connect`` checks the broker, never publishes."""
+"""``anker-eufy-security mqtt``: list the MQTT devices; ``--connect`` checks the broker, never publishes."""
 
 from __future__ import annotations
 
@@ -8,16 +8,16 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.cli import commands
-from eufy_home_security.cli.commands import Context
-from eufy_home_security.cli.config import EXIT_ERROR, UsageError, parse_args
-from eufy_home_security.client import EufySecurity
-from eufy_home_security.cloud import const
-from eufy_home_security.cloud.api import EufyCloudApi
-from eufy_home_security.mqtt import client as client_module
-from eufy_home_security.mqtt.account import EufyMqttAccount
-from eufy_home_security.mqtt.envelope import response_topic
-from eufy_home_security.testing import (
+from anker_eufy_security.cli import commands
+from anker_eufy_security.cli.commands import Context
+from anker_eufy_security.cli.config import EXIT_ERROR, UsageError, parse_args
+from anker_eufy_security.client import EufySecurity
+from anker_eufy_security.cloud import const
+from anker_eufy_security.cloud.api import EufyCloudApi
+from anker_eufy_security.mqtt import client as client_module
+from anker_eufy_security.mqtt.account import EufyMqttAccount
+from anker_eufy_security.mqtt.envelope import response_topic
+from anker_eufy_security.testing import (
     SYNTHETIC,
     FakeCloud,
     build_eufy_security,
@@ -25,7 +25,7 @@ from eufy_home_security.testing import (
     station_device,
     warm_store,
 )
-from eufy_home_security.testing.mqtt import FakeMqttBroker, MqttTestPki, make_mqtt_pki
+from anker_eufy_security.testing.mqtt import FakeMqttBroker, MqttTestPki, make_mqtt_pki
 
 LOCK_SN = "T85D0P2000054321"
 LOCK = {"device_sn": LOCK_SN, "device_type": 0, "device_name": "Door", "device_new_pn": "T85D0"}

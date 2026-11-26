@@ -1,7 +1,7 @@
 """Shared fixtures.
 
 Every identity the tests use is synthetic and defined once, in
-:data:`eufy_home_security.testing.SYNTHETIC`; a test that needs a second identity (another
+:data:`anker_eufy_security.testing.SYNTHETIC`; a test that needs a second identity (another
 account, another station) defines it locally. Real serials, P2P ids, account ids and LAN
 addresses must never appear in this repository (``scripts/check_denylist.py``).
 """
@@ -18,8 +18,8 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices import capabilities, model_settings
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.devices import capabilities, model_settings
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def _loopback(address: object) -> bool:

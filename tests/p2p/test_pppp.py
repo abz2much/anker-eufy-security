@@ -9,10 +9,10 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from eufy_home_security.exceptions import ProtocolError
-from eufy_home_security.p2p import pppp
-from eufy_home_security.p2p.did import Did
-from eufy_home_security.p2p.pppp import (
+from anker_eufy_security.exceptions import ProtocolError
+from anker_eufy_security.p2p import pppp
+from anker_eufy_security.p2p.did import Did
+from anker_eufy_security.p2p.pppp import (
     MsgType,
     decode_drw,
     decode_drw_ack,

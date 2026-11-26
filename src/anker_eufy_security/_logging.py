@@ -1,0 +1,539 @@
+"""Logging helpers shared by every subsystem.
+
+Loggers follow the module tree (``anker_eufy_security.p2p.session`` and so on), so a
+consumer can raise one subsystem to DEBUG without the rest. Home Assistant does
+exactly that when the integration lists ``anker_eufy_security`` under ``loggers``.
+
+Wire-level dumps go to a separate branch, ``anker_eufy_security.wire.<subsystem>``,
+which is held at WARNING at import time — unless the application has already
+configured it (Home Assistant applies ``logger:`` before importing integrations).
+Turning on DEBUG for the package does not turn them on — they are far too noisy for
+a normal debug log — so enable them explicitly with :func:`set_wire_logging`.
+
+Secrets (passwords, tokens, cipher and session keys) and identifiers (account and
+user ids, user and device names, serials, DIDs, MAC and public IP addresses, media
+paths, push device ids) are logged through :class:`Secret`, :class:`Identifier`,
+:class:`Address` and :class:`Payload`, which render them redacted unless the
+``anker_eufy_security.secrets`` logger is at DEBUG (:func:`set_secret_logging`). That
+switch is separate from the package level for the same reason as the wire dumps:
+a debug log attached to an issue must not carry the account or the house.
+"""
+
+from __future__ import annotations
+
+import base64
+import ipaddress
+import json
+import logging
+import re
+import time
+from collections.abc import Mapping
+from typing import Final
+
+from .models import IDENTIFYING_PARAMS
+from .p2p._json import MAX_JSON_DEPTH, parse_json
+
+PACKAGE_LOGGER: Final = logging.getLogger("anker_eufy_security")
+PACKAGE_LOGGER.addHandler(logging.NullHandler())
+
+WIRE_LOGGER: Final = logging.getLogger("anker_eufy_security.wire")
+if WIRE_LOGGER.level == logging.NOTSET:
+    WIRE_LOGGER.setLevel(logging.WARNING)
+
+
+def wire_logger(subsystem: str) -> logging.Logger:
+    """Return the wire-dump logger for ``subsystem`` (``p2p``, ``cloud``, ``push``)."""
+    return WIRE_LOGGER.getChild(subsystem)
+
+
+def set_wire_logging(enabled: bool) -> None:
+    """Enable or disable wire-level (hexdump) logging for every subsystem."""
+    WIRE_LOGGER.setLevel(logging.DEBUG if enabled else logging.WARNING)
+
+
+SECRET_LOGGER: Final = logging.getLogger("anker_eufy_security.secrets")
+if SECRET_LOGGER.level == logging.NOTSET:
+    SECRET_LOGGER.setLevel(logging.WARNING)
+
+
+def set_secret_logging(enabled: bool) -> None:
+    """Log passwords, tokens and keys in clear (see :class:`Secret`), or stop doing so."""
+    SECRET_LOGGER.setLevel(logging.DEBUG if enabled else logging.WARNING)
+
+
+def secrets_enabled() -> bool:
+    return SECRET_LOGGER.isEnabledFor(logging.DEBUG)
+
+
+class Secret:
+    """A secret as a logging argument: in full when secret logging is on, else redacted.
+
+    Bytes render as hex. Rendering is lazy, so ``log.debug("key %s", Secret(key))``
+    costs nothing when the record is not emitted.
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    def __str__(self) -> str:
+        value = self._value
+        if isinstance(value, bytes | bytearray | memoryview):
+            value = bytes(value).hex()
+        if value is None or not secrets_enabled():
+            return redact(value)
+        return str(value)
+
+
+#: What a :class:`Credential` renders as while secret logging is off: no tail, no length.
+CREDENTIAL_MASK: Final = "***"
+
+
+class Credential:
+    """A credential (a password, a one-time code, a captcha answer) as a logging
+    argument: in full when secret logging is on, else :data:`CREDENTIAL_MASK`.
+
+    Unlike :class:`Secret` it keeps no tail and no length: a tail tells two keys apart,
+    but every character of a password is a real loss. An absent value renders as
+    ``None`` and an empty one as ``""``, so a log still shows whether one was given.
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    def __str__(self) -> str:
+        value = self._value
+        if value is None:
+            return "None"
+        text = str(value)
+        if not text or secrets_enabled():
+            return text
+        return CREDENTIAL_MASK
+
+
+#: Key fragments whose values :class:`Payload` treats as credentials: masked with
+#: :class:`Credential`, no tail (case-insensitive).
+CREDENTIAL_KEY_PARTS: Final = ("password", "passwd", "captcha", "verify_code", "answer")
+
+#: Key fragments whose values :class:`Payload` treats as secrets (case-insensitive).
+SENSITIVE_KEY_PARTS: Final = (
+    "password",
+    "passwd",
+    "token",
+    "secret",
+    "key",
+    "cipher",
+    "sign",
+    "cookie",
+    "authorization",
+    "email",
+    "phone",
+    "captcha",
+    "verify_code",
+    "encrypted_data",
+    "certificate",
+    "pkcs",
+)
+
+
+#: Keys whose values locate the house (its address and coordinates; ``longtitude`` as
+#: eufy spells it), compared like :data:`IDENTIFYING_KEYS`, which holds them too. Not
+#: the whole rule: a key whose last word is in :data:`LOCATION_KEY_SUFFIXES` counts too.
+LOCATION_KEYS: Final = frozenset(
+    {"address", "houseaddress", "location", "latitude", "longitude", "longtitude", "lat",
+     "lng", "lon"}
+)  # fmt: skip
+
+#: Last words of an address key whatever the prefix (``home_address``; also a network or
+#: e-mail address: ``router_addr``, ``macAddress``), split as for
+#: :data:`IDENTIFYING_KEY_SUFFIXES`, which holds them too.
+LOCATION_KEY_SUFFIXES: Final = frozenset({"address", "addr"})
+
+#: Keys whose values identify the account, a person, a device or the house, compared
+#: with case, ``_`` and ``-`` ignored (``device_sn``, ``mValueStrSub``, ``app-conn``).
+IDENTIFYING_KEYS: Final = LOCATION_KEYS | frozenset(
+    {
+        # account and people
+        "account", "accountid", "userid", "uid", "shortuserid", "adminuserid",
+        "memberuserid", "actionuserid", "ownerid", "owneruserid", "mvaluestrsub",
+        "username", "nickname", "nick", "actionusernick", "actionusername", "personname",
+        "mobile", "openudid", "thingname",
+        # faces the station's AI matched (a push's short keys f and i)
+        "f", "i", "fetchid", "aifaceid", "aifaceids", "faceurl", "facepath", "feature",
+        # devices and the house
+        "sn", "s", "serial", "serialnumber", "devicesn", "stationsn", "parentsn", "did",
+        "p2pdid", "hddlabel", "curstoragelabel", "oldstoragelabel",
+        "name", "devicename", "stationname", "devicealiasname", "homename", "roomname",
+        "houseid", "homeid", "roomid", "mac", "btmac", "wifimac", "ssid", "wifissid",
+        "appconn", "p2pconn", "ip", "ipaddr", "macaddr", "bssid", "localip", "androidid", "fid", "housename",
+        # media on the station's disk
+        "file", "filepath", "path", "thumbpath", "storagepath", "croppath", "videopath",
+        "coverpath", "cloudpath", "crophb3path", "cropcloudpath", "snapshotcloud", "mp4cloud",
+        "picurl",
+    }
+)  # fmt: skip
+
+#: Last words of a key that identify its value whatever the prefix (``ap_ssid``,
+#: ``ap_ip``, ``apMac``, ``hub_sn``, ``router_addr``); words split at ``_``, ``-`` and
+#: a case change (``apMac``, ``APMac``). Not ``name``: ``table_name`` and ``app-name`` name no one.
+IDENTIFYING_KEY_SUFFIXES: Final = LOCATION_KEY_SUFFIXES | frozenset(
+    {"ssid", "bssid", "ip", "ipv4", "ipv6", "mac", "sn", "did"}
+)
+_KEY_WORDS = re.compile(r"[_\-]+|(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+_IDENTIFYING_PARAM_TEXT: Final = frozenset(str(param) for param in IDENTIFYING_PARAMS)
+_SERIAL = re.compile(r"(?<![A-Z0-9])T[0-9A-Z]{15}(?![A-Z0-9])")
+_ACCOUNT_ID = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{40}(?![0-9a-fA-F])")
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_MEDIA_PATH = re.compile(r"/zx/[^\s\"',;]*")
+
+
+def _hidden_text(text: str) -> str:
+    """``text`` with serials, 40-hex account ids, e-mail addresses and station media
+    paths (``/zx/…``) redacted."""
+    text = _MEDIA_PATH.sub(lambda m: redact(m.group()), text)
+    text = _SERIAL.sub(lambda m: redact_serial(m.group()), text)
+    text = _ACCOUNT_ID.sub(lambda m: redact(m.group()), text)
+    return _EMAIL.sub(lambda m: redact(m.group()), text)
+
+
+def scrub(value: object) -> str:
+    """Free text for a log line with any serial, account id, e-mail address or media
+    path in it redacted (in full when secret logging is on)."""
+    text = str(value)
+    return text if secrets_enabled() else _hidden_text(text)
+
+
+class Identifier:
+    """An identifier as a logging argument: in full when secret logging is on, else
+    redacted (a serial keeps its model prefix, see :func:`redact_serial`)."""
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    def __str__(self) -> str:
+        value = self._value
+        if value is None or not secrets_enabled():
+            return _hidden_identifier(value)
+        return str(value)
+
+
+def _hidden_identifier(value: object) -> str:
+    if isinstance(value, str) and _SERIAL.fullmatch(value):
+        return redact_serial(value)
+    return redact(value)
+
+
+class Address:
+    """A host as a logging argument: private, loopback and link-local IP addresses and
+    host names in full (they say which network path was taken, not who you are);
+    public IP addresses redacted unless secret logging is on."""
+
+    __slots__ = ("_host",)
+
+    def __init__(self, host: object) -> None:
+        self._host = host
+
+    def __str__(self) -> str:
+        text = str(self._host)
+        try:
+            ip = ipaddress.ip_address(text)
+        except ValueError:
+            return text
+        if ip.is_private or ip.is_loopback or ip.is_link_local or secrets_enabled():
+            return text
+        return redact(text)
+
+
+def _masked(data: object, clear: bool) -> object:
+    if isinstance(data, Mapping):
+        out: dict[str, object] = {}
+        # A parameter entry ({"param_type": 1217, "param_value": "Front"}) is identified
+        # by its id, not its key.
+        named_param = str(data.get("param_type")) in _IDENTIFYING_PARAM_TEXT
+        for k, v in data.items():
+            key = str(k)
+            if isinstance(v, str | bytes | int) and not isinstance(v, bool) and _credential(key):
+                out[key] = str(Credential(v))
+            elif isinstance(v, str | bytes | int) and not isinstance(v, bool) and _sensitive(key):
+                out[key] = str(Secret(v))
+            elif (
+                isinstance(v, str | int | float)
+                and not isinstance(v, bool)
+                and (_identifying(key) or (named_param and key == "param_value"))
+            ):
+                out[key] = str(v) if clear else _hidden_identifier(v)
+            elif isinstance(v, list | tuple) and _identifying(key):
+                out[key] = [_masked_item(item, clear) for item in v]
+            else:
+                out[key] = _masked(v, clear)
+        return out
+    if isinstance(data, list | tuple):
+        return [_masked(v, clear) for v in data]
+    if isinstance(data, bytes | bytearray):
+        return bytes(data).hex()
+    if isinstance(data, str):
+        stripped = data.strip()
+        if stripped[:1] in ("{", "[") and stripped[-1:] in ("}", "]"):
+            try:
+                decoded = parse_json(stripped)
+            except ValueError:
+                decoded = None
+            if isinstance(decoded, dict | list):
+                return _masked(decoded, clear)  # a JSON body inside a string
+        if not clear and (decoded := json_in_base64(stripped)) is not None:
+            return _masked(decoded, clear)  # a stored JSON value, as base64 of its text
+        return data if clear else _hidden_text(data)
+    return data
+
+
+def json_in_base64(text: str) -> dict[str, object] | list[object] | None:
+    """The JSON object or array ``text`` holds as base64 of its JSON text (standard
+    alphabet, padded, no blanks); None for any other text."""
+    try:
+        decoded = parse_json(base64.b64decode(text, validate=True).decode("utf-8"))
+    except ValueError:  # bad base64, not UTF-8, not JSON, too deep
+        return None
+    return decoded if isinstance(decoded, dict | list) else None
+
+
+def _masked_item(item: object, clear: bool) -> object:
+    """One entry of a list under an identifying key: a scalar redacted, a container masked."""
+    if isinstance(item, str | int | float) and not isinstance(item, bool):
+        return str(item) if clear else _hidden_identifier(item)
+    return _masked(item, clear)
+
+
+def _sensitive(key: str) -> bool:
+    lowered = key.lower()
+    return any(part in lowered for part in SENSITIVE_KEY_PARTS)
+
+
+def _credential(key: str) -> bool:
+    lowered = key.lower()
+    return any(part in lowered for part in CREDENTIAL_KEY_PARTS)
+
+
+def _key_in(key: str, keys: frozenset[str], suffixes: frozenset[str]) -> bool:
+    """Whether ``key`` (case, ``_`` and ``-`` ignored) is one of ``keys``, or its last
+    word (:data:`_KEY_WORDS`) one of ``suffixes``."""
+    if key.lower().replace("_", "").replace("-", "") in keys:
+        return True
+    words = [word for word in _KEY_WORDS.split(key) if word]
+    return bool(words) and words[-1].lower() in suffixes
+
+
+def _identifying(key: str) -> bool:
+    return _key_in(key, IDENTIFYING_KEYS, IDENTIFYING_KEY_SUFFIXES)
+
+
+class Payload:
+    """A request/response body or header map as a logging argument, rendered as JSON.
+
+    Values under a sensitive key (:data:`SENSITIVE_KEY_PARTS`) go through
+    :class:`Secret`; values under an identifying key (:data:`IDENTIFYING_KEYS`, or one
+    ending in a word of :data:`IDENTIFYING_KEY_SUFFIXES`) and
+    serials, account ids, e-mail addresses and media paths anywhere in a string are redacted
+    unless secret logging is on. A string holding a JSON object is decoded so its
+    fields are masked too. Long renderings are cut at ``limit`` characters.
+    """
+
+    __slots__ = ("_data", "_limit")
+
+    def __init__(self, data: object, limit: int = 4000) -> None:
+        self._data = data
+        self._limit = limit
+
+    def __str__(self) -> str:
+        clear = secrets_enabled()
+        text = json.dumps(_masked(self._data, clear), ensure_ascii=False, default=str)
+        if len(text) > self._limit:
+            return f"{text[: self._limit]}… {len(text) - self._limit} more chars"
+        return text
+
+
+_SERIAL_BYTES = re.compile(rb"T[0-9A-Z]{4}([0-9A-Z]{7})[0-9A-Z]{4}")
+_DID_STRUCT_BYTES = re.compile(rb"[A-Z]{3,8}\x00{0,5}((?s:.{4})[A-Z]{5})")
+_DID_TEXT_BYTES = re.compile(rb"[A-Z]{3,8}-([0-9]{6}-[A-Z]{5})")
+_ACCOUNT_ID_BYTES = re.compile(rb"([0-9a-f]{36})[0-9a-f]{4}")
+# A JSON member with a string or number value: group 1 the key, group 2 the value.
+_JSON_MEMBER_BYTES = re.compile(rb'"([A-Za-z0-9_-]+)"\s*:\s*("(?:[^"\\]|\\.)*"|-?[0-9][-+.0-9eE]*)')
+
+#: Extra literal byte strings to star out of hexdumps: secrets with no fixed shape,
+#: such as a device session key (DSK). Registered at runtime, deduplicated, and never
+#: persisted; empty by default.
+_SECRET_BYTES: set[bytes] = set()
+
+
+def register_secret_bytes(*values: bytes | str) -> None:
+    """Star ``values`` out of every wire hexdump (unless the secrets switch is on).
+
+    For secrets that carry no recognisable shape (a DSK, say), so the pattern-based
+    masking cannot catch them. A short or empty value is ignored, so a blank key never
+    blanks a whole dump."""
+    for value in values:
+        raw = value.encode() if isinstance(value, str) else value
+        if len(raw) >= 4:
+            _SECRET_BYTES.add(raw)
+
+
+def _hidden_bytes(data: bytes) -> bytes:
+    """``data`` with serials, DIDs (struct and text form), 40-hex account ids, the values
+    of JSON members under an identifying key (:func:`_identifying`) and any registered
+    secret bytes starred out in place, so a hexdump keeps its offsets."""
+    out = bytearray(data)
+    for match in _JSON_MEMBER_BYTES.finditer(data):
+        if _identifying(match[1].decode("ascii")):
+            out[match.start(2) : match.end(2)] = b"*" * (match.end(2) - match.start(2))
+    for pattern in (_SERIAL_BYTES, _DID_STRUCT_BYTES, _DID_TEXT_BYTES, _ACCOUNT_ID_BYTES):
+        for match in pattern.finditer(data):
+            if pattern is _DID_STRUCT_BYTES and match.start(1) - match.start() != 8:
+                continue  # a DID prefix is NUL-padded to exactly 8 bytes
+            out[match.start(1) : match.end(1)] = b"*" * (match.end(1) - match.start(1))
+    for secret in _SECRET_BYTES:
+        start = data.find(secret)
+        while start != -1:
+            out[start : start + len(secret)] = b"*" * len(secret)
+            start = data.find(secret, start + 1)
+    return bytes(out)
+
+
+class HexDump:
+    """Lazily formatted hexdump: the bytes are only rendered if the record is emitted.
+
+    Use as a logging argument: ``log.debug("rx %s", HexDump(data))``.
+    """
+
+    __slots__ = ("_data", "_limit")
+
+    def __init__(self, data: bytes | bytearray | memoryview, limit: int = 256) -> None:
+        self._data = bytes(data)
+        self._limit = limit
+
+    def __str__(self) -> str:
+        data = self._data if secrets_enabled() else _hidden_bytes(self._data)
+        shown = data[: self._limit]
+        lines = []
+        for off in range(0, len(shown), 16):
+            chunk = shown[off : off + 16]
+            hexpart = " ".join(f"{b:02x}" for b in chunk)
+            text = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+            lines.append(f"{off:04x}  {hexpart:<47}  {text}")
+        if len(self._data) > self._limit:
+            lines.append(f"… {len(self._data) - self._limit} more bytes")
+        return f"({len(self._data)} bytes)\n" + "\n".join(lines)
+
+
+def redact(value: object, visible: int = 4) -> str:
+    """Hide a secret, keeping only its last ``visible`` characters and its length."""
+    if value is None:
+        return "None"
+    text = str(value)
+    if not text:
+        return ""
+    if len(text) <= visible * 2:
+        return "*" * len(text)
+    return f"***{text[-visible:]}"
+
+
+def redact_location(value: object) -> object:
+    """A copy of the JSON-like ``value`` without its location and address members.
+
+    Mappings, lists and tuples are copied at any depth (a mapping as a ``dict``, a list
+    or tuple subclass as a plain ``list`` or ``tuple``), leaving out every member whose
+    key is one of :data:`LOCATION_KEYS` or has its last word in
+    :data:`LOCATION_KEY_SUFFIXES` (which also drops network and e-mail addresses),
+    matched as the logs match identifying keys. A key that is no string is kept. Any
+    other object comes back as it is, unread and not copied: a JSON text or base64 of
+    one (decode it first), a set, a dataclass. A container nested deeper than
+    :data:`~.p2p._json.MAX_JSON_DEPTH`, or met again inside itself (a cycle), comes back
+    empty; a container shared by several members is read once and its copy shared the
+    same way. So no value raises or runs long. ``value`` is never changed.
+    """
+    return _without_location(value, 1, set(), {})
+
+
+def _without_location(
+    value: object, depth: int, path: set[int], done: dict[tuple[int, int], object]
+) -> object:
+    """``value`` redacted at ``depth``; ``path`` holds the ids of the containers being
+    copied, ``done`` the copies made, by id and depth."""
+    if not isinstance(value, Mapping | list | tuple):
+        return value
+    if depth > MAX_JSON_DEPTH or id(value) in path:
+        return {} if isinstance(value, Mapping) else () if isinstance(value, tuple) else []
+    key = (id(value), depth)
+    if key in done:
+        return done[key]
+    path.add(id(value))
+    try:
+        if isinstance(value, Mapping):
+            copy: object = {
+                name: _without_location(member, depth + 1, path, done)
+                for name, member in value.items()
+                if not (
+                    isinstance(name, str) and _key_in(name, LOCATION_KEYS, LOCATION_KEY_SUFFIXES)
+                )
+            }
+        else:
+            items = [_without_location(item, depth + 1, path, done) for item in value]
+            copy = tuple(items) if isinstance(value, tuple) else items
+    finally:
+        path.discard(id(value))
+    done[key] = copy
+    return copy
+
+
+def redact_serial(serial: str | None) -> str:
+    """Hide a device serial, keeping the model prefix (``T8030``) and the last 4."""
+    if not serial:
+        return str(serial)
+    if len(serial) <= 9:
+        return redact(serial)
+    return f"{serial[:5]}***{serial[-4:]}"
+
+
+class LogThrottle:
+    """Decide whether a repeated log line should be emitted again.
+
+    UDP retransmits, unknown frame types and reconnect loops repeat; logging each
+    occurrence buries the first one. ``should_log(key)`` is True the first time a
+    key is seen and then at most once per ``interval`` seconds.
+
+    Keys are often taken from the wire — a peer address, a frame type — so the table is
+    bounded and expired entries are dropped. Without that, anything on the LAN could
+    grow it without limit for the life of the process.
+    """
+
+    def __init__(self, interval: float = 300.0, *, max_keys: int = 512) -> None:
+        self._interval = interval
+        self._max_keys = max_keys
+        self._last: dict[object, float] = {}
+
+    def should_log(self, key: object) -> bool:
+        now = time.monotonic()
+        last = self._last.get(key)
+        if last is not None and now - last < self._interval:
+            return False
+        if key not in self._last and len(self._last) >= self._max_keys:
+            self._evict(now)
+        self._last[key] = now
+        return True
+
+    def _evict(self, now: float) -> None:
+        """Drop every entry past its interval; failing that, the oldest half.
+
+        An expired entry would allow its line again anyway, so dropping it changes
+        nothing. When none has expired the keys are arriving faster than the interval,
+        which is the flood this table exists to survive.
+        """
+        self._last = {key: at for key, at in self._last.items() if now - at < self._interval}
+        if len(self._last) < self._max_keys:
+            return
+        keep = sorted(self._last.items(), key=lambda item: item[1])[len(self._last) // 2 :]
+        self._last = dict(keep)

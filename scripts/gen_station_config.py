@@ -3,7 +3,7 @@
 For every station model of :data:`STATIONS` whose thing description is cached, the
 vendor handler runs offline (``scripts/thing_models.py`` harness, Node) for the
 properties and actions behind each
-:class:`~eufy_home_security.devices.station_config_support.StationFeature`; the
+:class:`~anker_eufy_security.devices.station_config_support.StationFeature`; the
 thing description's capability gates (``arming_support_*``), the app's HomeBase
 capability table (``hb_capability_config.json``) and a Remote Config snapshot add the
 app's own conditions. Per model and feature the file records a grade (``declared`` or
@@ -33,15 +33,15 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from eufy_home_security.devices.station_config_support import ModeTableStorage, StationFeature
-from eufy_home_security.models import GuardMode
-from eufy_home_security.p2p.station_config_codecs import STORED_MODE_TABLE_PARAMS
+from anker_eufy_security.devices.station_config_support import ModeTableStorage, StationFeature
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.p2p.station_config_codecs import STORED_MODE_TABLE_PARAMS
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA = ROOT / ".work" / "notes" / "hb-config" / "data"
 DEFAULT_CACHE = ROOT / ".work" / "cache" / "things_all"
 DEFAULT_REMOTE_CONFIG = ROOT / ".work" / "tools" / "data" / "firebase_rc_EE.json"
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "_station_config_data.py"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "_station_config_data.py"
 CAPABILITY_FILE = "hb_capability_config.json"
 APP_VERSION = "6.1.10"  # the app build whose handlers the cache holds
 

@@ -8,14 +8,14 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from eufy_home_security.exceptions import CommandNotAppliedError, DeviceTimeoutError
-from eufy_home_security.models import GuardMode
-from eufy_home_security.p2p import broadcast, pppp
-from eufy_home_security.p2p import session as session_module
-from eufy_home_security.p2p.discovery import discover_stations
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.testing import SYNTHETIC, FakeStation, short_timeouts
-from eufy_home_security.testing.timeouts import SHORT_TIMEOUTS
+from anker_eufy_security.exceptions import CommandNotAppliedError, DeviceTimeoutError
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.p2p import broadcast, pppp
+from anker_eufy_security.p2p import session as session_module
+from anker_eufy_security.p2p.discovery import discover_stations
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.testing import SYNTHETIC, FakeStation, short_timeouts
+from anker_eufy_security.testing.timeouts import SHORT_TIMEOUTS
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def test_short_timeouts_sets_each_wait_and_restores_it() -> None:
 def test_short_timeouts_sets_every_listed_wait_on_its_module() -> None:
     def current() -> dict[str, object]:
         return {
-            name: getattr(importlib.import_module(f"eufy_home_security.{module}"), name)
+            name: getattr(importlib.import_module(f"anker_eufy_security.{module}"), name)
             for name, (module, _value) in SHORT_TIMEOUTS.items()
         }
 
@@ -72,13 +72,13 @@ def test_short_timeouts_sets_every_listed_wait_on_its_module() -> None:
 )
 def test_the_camera_motion_and_live_image_waits_are_shortened(name: str) -> None:
     module, value = SHORT_TIMEOUTS[name]
-    assert value < getattr(importlib.import_module(f"eufy_home_security.{module}"), name)
+    assert value < getattr(importlib.import_module(f"anker_eufy_security.{module}"), name)
 
 
 @pytest.mark.parametrize("name", ["RENDEZVOUS_PROBE_TIMEOUT", "RENDEZVOUS_PROBE_BUDGET"])
 def test_the_setup_rendezvous_probe_waits_are_shortened(name: str) -> None:
     module, value = SHORT_TIMEOUTS[name]
-    assert value < getattr(importlib.import_module(f"eufy_home_security.{module}"), name)
+    assert value < getattr(importlib.import_module(f"anker_eufy_security.{module}"), name)
 
 
 def test_short_timeouts_refuses_an_unknown_name() -> None:

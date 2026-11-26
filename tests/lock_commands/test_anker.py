@@ -10,10 +10,10 @@ from cryptography.hazmat.primitives import padding, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from eufy_home_security.exceptions import LockReplyMismatchError, ProtocolError
-from eufy_home_security.lock_commands import LockAction, LockReply, LockResult, anker, frames
-from eufy_home_security.p2p import crypto
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.exceptions import LockReplyMismatchError, ProtocolError
+from anker_eufy_security.lock_commands import LockAction, LockReply, LockResult, anker, frames
+from anker_eufy_security.p2p import crypto
+from anker_eufy_security.testing import SYNTHETIC
 
 SERIAL_1961 = "T8520" + SYNTHETIC.station_sn[5:]
 SERIAL_1930 = "T8501" + SYNTHETIC.station_sn[5:]

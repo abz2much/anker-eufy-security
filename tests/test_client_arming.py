@@ -11,26 +11,26 @@ from typing import Any, cast
 
 import pytest
 
-from eufy_home_security.client import EufySecurity
-from eufy_home_security.cloud import const
-from eufy_home_security.cloud.arming import ArmingOutcome
-from eufy_home_security.exceptions import (
+from anker_eufy_security.client import EufySecurity
+from anker_eufy_security.cloud import const
+from anker_eufy_security.cloud.arming import ArmingOutcome
+from anker_eufy_security.exceptions import (
     CloudApiError,
     CommandNotAppliedError,
     EufySecurityError,
     UnsupportedError,
 )
-from eufy_home_security.inclusion import Reach
-from eufy_home_security.models import GuardMode
-from eufy_home_security.station import Station
-from eufy_home_security.testing import (
+from anker_eufy_security.inclusion import Reach
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.station import Station
+from anker_eufy_security.testing import (
     SYNTHETIC,
     FakeCloud,
     FakeStation,
     build_eufy_security,
     warm_store,
 )
-from eufy_home_security.testing.cloud import camera_device, station_device
+from anker_eufy_security.testing.cloud import camera_device, station_device
 
 OTHER_STATION_SN = "T8030P2000054321"
 OTHER_DID = "EUPRAMA-654321-ABCDE"

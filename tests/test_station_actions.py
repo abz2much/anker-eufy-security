@@ -9,28 +9,28 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.devices import station_config_support as scs
-from eufy_home_security.devices._station_config_data import RESTART_COMMAND
-from eufy_home_security.devices.station_config_support import (
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.devices import station_config_support as scs
+from anker_eufy_security.devices._station_config_data import RESTART_COMMAND
+from anker_eufy_security.devices.station_config_support import (
     StationFeature,
     config_support,
     restart_command,
     station_config_models,
 )
-from eufy_home_security.devices.support import Support
-from eufy_home_security.events import AlarmChanged, AlarmStopSource, Event
-from eufy_home_security.exceptions import (
+from anker_eufy_security.devices.support import Support
+from anker_eufy_security.events import AlarmChanged, AlarmStopSource, Event
+from anker_eufy_security.exceptions import (
     AccountRejectedError,
     CommandNotAppliedError,
     CommandRejectedError,
     UnsupportedError,
 )
-from eufy_home_security.p2p.messages import ECB_STATION_CMDS
-from eufy_home_security.p2p.session import CommandOutcome, P2PCredentials, StationSession
-from eufy_home_security.station import Station
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import FakeStation
+from anker_eufy_security.p2p.messages import ECB_STATION_CMDS
+from anker_eufy_security.p2p.session import CommandOutcome, P2PCredentials, StationSession
+from anker_eufy_security.station import Station
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import FakeStation
 
 HB3 = CloudDevice(
     device_sn=SYNTHETIC.station_sn,

@@ -47,9 +47,9 @@ stamp the commit into the version as a PEP 440 local label (`0.1.0+g<sha>`, with
 `.dirty` for uncommitted edits); `pyproject.toml` is not changed:
 
 ```
-VIRTUAL_ENV= uv run python scripts/dev_build.py        # → dist/eufy_home_security-0.1.0+g<sha>-py3-none-any.whl
-uv pip install --reinstall-package eufy-home-security dist/eufy_home_security-0.1.0+g*.whl
-python -c "import eufy_home_security as e; print(e.__version__)"   # 0.1.0+g<sha>
+VIRTUAL_ENV= uv run python scripts/dev_build.py        # → dist/anker_eufy_security-0.1.0+g<sha>-py3-none-any.whl
+uv pip install --reinstall-package anker-eufy-security dist/anker_eufy_security-0.1.0+g*.whl
+python -c "import anker_eufy_security as e; print(e.__version__)"   # 0.1.0+g<sha>
 ```
 
 Pass `--reinstall-package` whenever the version did not change (a plain `uv build`).
@@ -68,7 +68,7 @@ uv run --no-project python scripts/check_dist.py --dist dist
 `check_dist.py` is what CI runs on every push: `twine check --strict`,
 `check-wheel-contents`, an sdist that holds only the build inputs, a wheel rebuilt
 from the sdist that is byte-identical, and the wheel and the sdist each installed
-into a clean venv (import, package data, `eufy-security --help`), plus
+into a clean venv (import, package data, `anker-eufy-security --help`), plus
 `uv tool install` and `uvx`. Without `--dist` it builds into a temporary directory.
 Builds are reproducible: `uv_build` fixes timestamps and ownership, so the same tree
 gives the same bytes.
@@ -84,14 +84,14 @@ publishing (`pypi` environment, no token), with PEP 740 attestations.
 ## Ground rules
 
 - **Asyncio only**, no blocking I/O on the event loop, no Home Assistant imports.
-- **Typed errors** from `eufy_home_security.exceptions`; never report success on a
+- **Typed errors** from `anker_eufy_security.exceptions`; never report success on a
   transport ACK alone.
 - **Tests mirror `src/`** — one test module per source module, each scenario in
   one place. Protocol tests run against the loopback fake station
-  (`eufy_home_security.testing.FakeStation`, `src/eufy_home_security/testing/station.py`).
+  (`anker_eufy_security.testing.FakeStation`, `src/anker_eufy_security/testing/station.py`).
 - **No real identifiers.** Serials, P2P ids, account ids, LAN addresses, names —
   none of it goes into code, tests, fixtures or docs. Use the synthetic identities
-  of `eufy_home_security.testing.SYNTHETIC`, and build fixtures by encrypting
+  of `anker_eufy_security.testing.SYNTHETIC`, and build fixtures by encrypting
   synthetic plaintext with fake keys rather than committing captured traffic.
 - **Conventional commits** (`feat:`, `fix:`, `docs:`, `test:`, `chore:` …); the
   changelog and version are generated from them.
@@ -99,7 +99,7 @@ publishing (`pypi` environment, no token), with PEP 740 attestations.
 ## Adding or verifying a device
 
 See [docs/how-to/add-a-device.md](docs/how-to/add-a-device.md). In short: add the
-model and profile to `src/eufy_home_security/devices/` with honest `Evidence`
+model and profile to `src/anker_eufy_security/devices/` with honest `Evidence`
 (settings come from the generated per-model file), add tests, and regenerate the
 support matrix (`uv run python scripts/gen_device_matrix.py`). An entry becomes *verified* only
 with evidence from real hardware. Open the pull request with the device template

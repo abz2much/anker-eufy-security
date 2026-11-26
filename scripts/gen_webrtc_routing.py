@@ -5,7 +5,7 @@ property, the file records each such property in thing-description order: its
 identifier, its default value as the eufy app reads it (an enum's default entry, else
 ``defaultValue``, else empty), and its ``available_conditions`` and ``read_conditions``
 as lists of condition groups of ``[type, qualifier, value]``. The rule that reads
-them is :mod:`eufy_home_security.devices.webrtc`. A condition type that rule does not
+them is :mod:`anker_eufy_security.devices.webrtc`. A condition type that rule does not
 evaluate, or a pattern Python cannot compile, stops the generator. Runs on a maintainer
 host only.
 
@@ -25,11 +25,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from eufy_home_security.devices.webrtc import CONDITION_TYPES, ROUTE_PROPERTY
+from anker_eufy_security.devices.webrtc import CONDITION_TYPES, ROUTE_PROPERTY
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CACHE = ROOT / ".work" / "cache" / "things_all"
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "_webrtc_routing_data.py"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "_webrtc_routing_data.py"
 TD_FILE = "td.json"
 
 type Condition = list[str]

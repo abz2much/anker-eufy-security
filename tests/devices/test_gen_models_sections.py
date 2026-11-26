@@ -12,10 +12,10 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices.sections import OTHER_SECTION, SETTING_SECTIONS
+from anker_eufy_security.devices.sections import OTHER_SECTION, SETTING_SECTIONS
 
 ROOT = Path(__file__).resolve().parents[2]
-MODELS = ROOT / "src" / "eufy_home_security" / "devices" / "data" / "models"
+MODELS = ROOT / "src" / "anker_eufy_security" / "devices" / "data" / "models"
 
 
 def _load(name: str) -> ModuleType:

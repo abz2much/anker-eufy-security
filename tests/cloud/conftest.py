@@ -38,9 +38,9 @@ if "stream_writer" in inspect.signature(aiohttp.ClientResponse.__init__).paramet
 
     aiohttp.ClientResponse.__init__ = _patched_response_init  # type: ignore[method-assign]
 
-from eufy_home_security.cloud import const, crypto
-from eufy_home_security.storage import MemoryStore, SessionCache
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.cloud import const, crypto
+from anker_eufy_security.storage import MemoryStore, SessionCache
+from anker_eufy_security.testing import SYNTHETIC
 
 FAKE_OWNER_ID = "fedcba9876543210fedcba9876543210fedcba98"
 FAKE_AUTH_TOKEN = "auth-token-0123456789abcdef"

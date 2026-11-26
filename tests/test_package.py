@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 
-import eufy_home_security
-import eufy_home_security.cloud
-import eufy_home_security.p2p.clip
-from eufy_home_security import _lazy
+import anker_eufy_security
+import anker_eufy_security.cloud
+import anker_eufy_security.p2p.clip
+from anker_eufy_security import _lazy
 
 HEAVY = ("aiohttp", "firebase_messaging", "cryptography")
 # The P2P session legitimately needs cryptography, but never the network stack: a
@@ -20,22 +20,22 @@ HEAVY = ("aiohttp", "firebase_messaging", "cryptography")
 NETWORK = ("aiohttp", "firebase_messaging")
 RUNTIME = (*HEAVY, "asyncio")  # the package root installs its logging defaults
 # Shipped in the wheel for consumers' tests; no library module may import it.
-TESTING = "eufy_home_security.testing"
+TESTING = "anker_eufy_security.testing"
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_every_public_name_resolves() -> None:
-    for name in eufy_home_security.__all__:
-        assert getattr(eufy_home_security, name) is not None
-    assert name in dir(eufy_home_security)
-    assert isinstance(eufy_home_security.__version__, str)
+    for name in anker_eufy_security.__all__:
+        assert getattr(anker_eufy_security, name) is not None
+    assert name in dir(anker_eufy_security)
+    assert isinstance(anker_eufy_security.__version__, str)
     with pytest.raises(AttributeError, match="no attribute"):
-        _ = eufy_home_security.nope
+        _ = anker_eufy_security.nope
 
 
 def test_devices_exports_the_per_model_settings_api() -> None:
-    from eufy_home_security import devices  # noqa: PLC0415
-    from eufy_home_security.devices import (  # noqa: PLC0415
+    from anker_eufy_security import devices  # noqa: PLC0415
+    from anker_eufy_security.devices import (  # noqa: PLC0415
         Setting,
         SettingKind,
         SettingUnit,
@@ -67,52 +67,52 @@ def test_devices_exports_the_per_model_settings_api() -> None:
 
 
 def test_redaction_helpers_are_exported() -> None:
-    from eufy_home_security import (  # noqa: PLC0415
+    from anker_eufy_security import (  # noqa: PLC0415
         LOCATION_KEYS,
         redact,
         redact_location,
         redact_serial,
     )
 
-    assert redact_serial is eufy_home_security._logging.redact_serial
-    assert redact is eufy_home_security._logging.redact
-    assert redact_location is eufy_home_security._logging.redact_location
-    assert LOCATION_KEYS is eufy_home_security._logging.LOCATION_KEYS
+    assert redact_serial is anker_eufy_security._logging.redact_serial
+    assert redact is anker_eufy_security._logging.redact
+    assert redact_location is anker_eufy_security._logging.redact_location
+    assert LOCATION_KEYS is anker_eufy_security._logging.LOCATION_KEYS
 
 
 def test_the_card_constants_are_exported_from_the_root() -> None:
-    from eufy_home_security.devices import settings  # noqa: PLC0415
-    from eufy_home_security.p2p import mode_actions  # noqa: PLC0415
+    from anker_eufy_security.devices import settings  # noqa: PLC0415
+    from anker_eufy_security.p2p import mode_actions  # noqa: PLC0415
 
-    assert eufy_home_security.MODE_DELAY_CHOICES is mode_actions.MODE_DELAY_CHOICES
-    assert eufy_home_security.MODE_ACTION_ALARM_AFFECTING is settings.MODE_ACTION_ALARM_AFFECTING
-    assert eufy_home_security.MODE_ACTION_LABELS is settings.MODE_ACTION_LABELS
+    assert anker_eufy_security.MODE_DELAY_CHOICES is mode_actions.MODE_DELAY_CHOICES
+    assert anker_eufy_security.MODE_ACTION_ALARM_AFFECTING is settings.MODE_ACTION_ALARM_AFFECTING
+    assert anker_eufy_security.MODE_ACTION_LABELS is settings.MODE_ACTION_LABELS
 
 
 def test_the_schedule_and_mode_table_types_are_exported_from_the_root() -> None:
-    from eufy_home_security.p2p import mode_actions, station_config_codecs  # noqa: PLC0415
+    from anker_eufy_security.p2p import mode_actions, station_config_codecs  # noqa: PLC0415
 
-    assert eufy_home_security.ModeTable is mode_actions.ModeTable
+    assert anker_eufy_security.ModeTable is mode_actions.ModeTable
     for name in ("Schedule", "ScheduleSlot", "Weekday"):
-        assert name in eufy_home_security.__all__
-        assert getattr(eufy_home_security, name) is getattr(station_config_codecs, name)
+        assert name in anker_eufy_security.__all__
+        assert getattr(anker_eufy_security, name) is getattr(station_config_codecs, name)
 
 
 def test_every_cloud_public_name_resolves() -> None:
-    for name in eufy_home_security.cloud.__all__:
-        assert getattr(eufy_home_security.cloud, name) is not None
+    for name in anker_eufy_security.cloud.__all__:
+        assert getattr(anker_eufy_security.cloud, name) is not None
 
 
 def test_the_cloud_package_exports_the_types_its_api_returns() -> None:
-    from eufy_home_security.cloud import api, models  # noqa: PLC0415
+    from anker_eufy_security.cloud import api, models  # noqa: PLC0415
 
-    cloud = eufy_home_security.cloud
+    cloud = anker_eufy_security.cloud
     assert {"CipherKeys", "RsaKeyCheck"} <= set(cloud.__all__)
     assert (cloud.CipherKeys, cloud.RsaKeyCheck) == (api.CipherKeys, models.RsaKeyCheck)
 
 
 def test_the_arming_group_models_are_exported_from_the_root() -> None:
-    from eufy_home_security.cloud import arming  # noqa: PLC0415
+    from anker_eufy_security.cloud import arming  # noqa: PLC0415
 
     names = (
         "ArmingActivation",
@@ -124,29 +124,29 @@ def test_the_arming_group_models_are_exported_from_the_root() -> None:
         "ArmingMemberResult",
         "ArmingOutcome",
     )
-    assert set(names) <= set(eufy_home_security.__all__)
+    assert set(names) <= set(anker_eufy_security.__all__)
     for name in names:
-        assert getattr(eufy_home_security, name) is getattr(arming, name)
+        assert getattr(anker_eufy_security, name) is getattr(arming, name)
 
 
 def test_the_cache_layout_version_is_the_storage_version() -> None:
-    from eufy_home_security import storage  # noqa: PLC0415
+    from anker_eufy_security import storage  # noqa: PLC0415
 
-    assert eufy_home_security.CACHE_LAYOUT_VERSION == storage.CACHE_VERSION
+    assert anker_eufy_security.CACHE_LAYOUT_VERSION == storage.CACHE_VERSION
 
 
 def test_exports_table_matches_all() -> None:
-    assert set(eufy_home_security._EXPORTS) | {"__version__"} == set(eufy_home_security.__all__)
+    assert set(anker_eufy_security._EXPORTS) | {"__version__"} == set(anker_eufy_security.__all__)
 
 
 def test_lazy_exports_helper_resolves_modules_and_names() -> None:
     namespace: dict[str, object] = {}
     getattr_, dir_ = _lazy.lazy_exports(
-        "eufy_home_security", namespace, {"models": "models", "GuardMode": "models"}
+        "anker_eufy_security", namespace, {"models": "models", "GuardMode": "models"}
     )
-    assert getattr_("models") is sys.modules["eufy_home_security.models"]
-    assert getattr_("GuardMode") is eufy_home_security.models.GuardMode
-    assert namespace["GuardMode"] is eufy_home_security.models.GuardMode  # resolved once
+    assert getattr_("models") is sys.modules["anker_eufy_security.models"]
+    assert getattr_("GuardMode") is anker_eufy_security.models.GuardMode
+    assert namespace["GuardMode"] is anker_eufy_security.models.GuardMode  # resolved once
     assert dir_() == ["GuardMode", "models"]
     with pytest.raises(AttributeError):
         getattr_("other")
@@ -155,17 +155,17 @@ def test_lazy_exports_helper_resolves_modules_and_names() -> None:
 @pytest.mark.parametrize(
     ("module", "banned"),
     [
-        ("eufy_home_security", HEAVY),
-        ("eufy_home_security.models", HEAVY),
-        ("eufy_home_security.identity", HEAVY),
-        ("eufy_home_security.install", RUNTIME),
-        ("eufy_home_security.cloud.status", RUNTIME),
-        ("eufy_home_security.cli.commands", HEAVY),
-        ("eufy_home_security.client", NETWORK),
-        ("eufy_home_security.cloud.api", NETWORK),
-        ("eufy_home_security.station", NETWORK),
-        ("eufy_home_security.cli", RUNTIME),
-        ("eufy_home_security.cli.config", RUNTIME),
+        ("anker_eufy_security", HEAVY),
+        ("anker_eufy_security.models", HEAVY),
+        ("anker_eufy_security.identity", HEAVY),
+        ("anker_eufy_security.install", RUNTIME),
+        ("anker_eufy_security.cloud.status", RUNTIME),
+        ("anker_eufy_security.cli.commands", HEAVY),
+        ("anker_eufy_security.client", NETWORK),
+        ("anker_eufy_security.cloud.api", NETWORK),
+        ("anker_eufy_security.station", NETWORK),
+        ("anker_eufy_security.cli", RUNTIME),
+        ("anker_eufy_security.cli.config", RUNTIME),
     ],
 )
 def test_light_modules_do_not_load_the_heavy_dependencies(
@@ -192,5 +192,5 @@ def test_release_config_bumps_conservatively_before_one_point_oh() -> None:
 
 
 def test_the_clip_incomplete_reason_is_exported_from_the_root() -> None:
-    assert eufy_home_security.IncompleteReason is eufy_home_security.p2p.clip.IncompleteReason
-    assert "IncompleteReason" in eufy_home_security.__all__
+    assert anker_eufy_security.IncompleteReason is anker_eufy_security.p2p.clip.IncompleteReason
+    assert "IncompleteReason" in anker_eufy_security.__all__

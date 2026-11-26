@@ -8,14 +8,14 @@ from typing import Any, get_args
 
 import pytest
 
-from eufy_home_security.cli import render
-from eufy_home_security.cli.render import render_network
-from eufy_home_security.cloud.models import CloudDevice, CloudInvite
-from eufy_home_security.devices.device_alarm import DeviceAlarm
-from eufy_home_security.devices.garage import GarageDoorSource, GarageDoorState
-from eufy_home_security.devices.locks import LockState, LockStateSource
-from eufy_home_security.devices.recipes import PresetPosition
-from eufy_home_security.events import (
+from anker_eufy_security.cli import render
+from anker_eufy_security.cli.render import render_network
+from anker_eufy_security.cloud.models import CloudDevice, CloudInvite
+from anker_eufy_security.devices.device_alarm import DeviceAlarm
+from anker_eufy_security.devices.garage import GarageDoorSource, GarageDoorState
+from anker_eufy_security.devices.locks import LockState, LockStateSource
+from anker_eufy_security.devices.recipes import PresetPosition
+from anker_eufy_security.events import (
     AccountMismatch,
     AlarmChanged,
     AlarmDelayChanged,
@@ -43,19 +43,19 @@ from eufy_home_security.events import (
     StorageChanged,
     ZoomChanged,
 )
-from eufy_home_security.exceptions import CommunicationError, SessionReplacedError
-from eufy_home_security.models import FrameCipher, GuardMode, ValueSource
-from eufy_home_security.network import HostSource, LanPath
-from eufy_home_security.p2p.did import Did
-from eufy_home_security.p2p.discovery import DiscoveredStation
-from eufy_home_security.p2p.storage_info import (
+from anker_eufy_security.exceptions import CommunicationError, SessionReplacedError
+from anker_eufy_security.models import FrameCipher, GuardMode, ValueSource
+from anker_eufy_security.network import HostSource, LanPath
+from anker_eufy_security.p2p.did import Did
+from anker_eufy_security.p2p.discovery import DiscoveredStation
+from anker_eufy_security.p2p.storage_info import (
     StorageInfo,
     parse_sd_card_info,
     parse_storage_info,
 )
-from eufy_home_security.station import StationState, SubDeviceState
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import synthetic_storage_body
+from anker_eufy_security.station import StationState, SubDeviceState
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import synthetic_storage_body
 
 NOW = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 
@@ -258,7 +258,7 @@ def test_status_card() -> None:
 
 
 def test_status_card_names_cloud_listed_and_newer_models() -> None:
-    from eufy_home_security import ModelStatus  # noqa: PLC0415
+    from anker_eufy_security import ModelStatus  # noqa: PLC0415
 
     models = {
         "T9999": ModelStatus("T9999", "cloud-listed", None, 3),

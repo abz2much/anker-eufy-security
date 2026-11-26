@@ -9,9 +9,9 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from eufy_home_security.exceptions import ProtocolError
-from eufy_home_security.p2p.did import Did, static_key
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.exceptions import ProtocolError
+from anker_eufy_security.p2p.did import Did, static_key
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def test_parse_and_str_round_trip() -> None:

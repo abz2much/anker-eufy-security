@@ -12,7 +12,7 @@ from ipaddress import IPv4Network
 
 import pytest
 
-from eufy_home_security.p2p import netif
+from anker_eufy_security.p2p import netif
 
 _ADDR = {
     "lo": ("127.0.0.1", "255.0.0.0"),

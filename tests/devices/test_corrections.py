@@ -13,8 +13,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from eufy_home_security.devices.capabilities import PROFILES, Capability
-from eufy_home_security.devices.support import Support
+from anker_eufy_security.devices.capabilities import PROFILES, Capability
+from anker_eufy_security.devices.support import Support
 
 from .verification_log import VERIFIED_MARK, backticked, log_rows
 

@@ -11,11 +11,11 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.cloud.models import CloudDevice
-from eufy_home_security.exceptions import CommunicationError, UnsupportedError
-from eufy_home_security.mqtt import account as account_module
-from eufy_home_security.mqtt.account import EufyMqttAccount
-from eufy_home_security.mqtt.envelope import MqttMessage, response_topic
+from anker_eufy_security.cloud.models import CloudDevice
+from anker_eufy_security.exceptions import CommunicationError, UnsupportedError
+from anker_eufy_security.mqtt import account as account_module
+from anker_eufy_security.mqtt.account import EufyMqttAccount
+from anker_eufy_security.mqtt.envelope import MqttMessage, response_topic
 
 from .conftest import (
     CAMERA,

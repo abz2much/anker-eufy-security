@@ -11,10 +11,10 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from eufy_home_security.exceptions import ProtocolError, UnsupportedError
-from eufy_home_security.models import GuardMode
-from eufy_home_security.p2p.mode_actions import MODE_TABLE_MODES, CountDown, ModeTable
-from eufy_home_security.p2p.station_config_codecs import (
+from anker_eufy_security.exceptions import ProtocolError, UnsupportedError
+from anker_eufy_security.models import GuardMode
+from anker_eufy_security.p2p.mode_actions import MODE_TABLE_MODES, CountDown, ModeTable
+from anker_eufy_security.p2p.station_config_codecs import (
     BUILT_IN_MODE_TITLES,
     CUSTOM_MODES,
     MAX_DETAIL_LENGTH,
@@ -45,7 +45,7 @@ from eufy_home_security.p2p.station_config_codecs import (
     encode_tracking_groups,
     modify_custom_mode,
 )
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 ACCOUNT = SYNTHETIC.account_id
 CAMERAS = tuple(SYNTHETIC.camera_sn[:-1] + str(n) for n in range(3))

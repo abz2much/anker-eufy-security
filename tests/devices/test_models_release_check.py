@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-MODELS = ROOT / "src" / "eufy_home_security" / "devices" / "data" / "models"
+MODELS = ROOT / "src" / "anker_eufy_security" / "devices" / "data" / "models"
 REFERENCE = json.loads(
     (ROOT / "tests" / "fixtures" / "models_v1_reference.json").read_text(encoding="utf-8")
 )

@@ -7,7 +7,7 @@ whether the 1961 command goes plain, the lock parameter that switches the 1930 f
 ECDH, and the Remote Config keys and default thresholds of the HKDF key), plus a Remote
 Config fetch (``{"template_version", "entries"}``) whose entries replace a default when
 they name its key. The rule that reads the table is
-:mod:`eufy_home_security.devices.lock_routes`. A P2P service or MQTT rule this rule does
+:mod:`anker_eufy_security.devices.lock_routes`. A P2P service or MQTT rule this rule does
 not know stops the generator. Runs on a maintainer host only.
 
     gen_lock_routes.py [--routes FILE] [--remote-config FILE] [--out FILE] [--check]
@@ -22,12 +22,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from eufy_home_security.devices.lock_routes import MQTT_RULES, P2P_FORMS
+from anker_eufy_security.devices.lock_routes import MQTT_RULES, P2P_FORMS
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ROUTES = ROOT / ".work" / "tools" / "data" / "lock_routes.json"
 DEFAULT_REMOTE_CONFIG = ROOT / ".work" / "tools" / "data" / "firebase_rc_EE.json"
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "_lock_routes_data.py"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "_lock_routes_data.py"
 
 # The app's P2P protocol service -> the form the library names it by.
 _SERVICES = {

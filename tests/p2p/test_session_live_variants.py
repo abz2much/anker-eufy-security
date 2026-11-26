@@ -14,18 +14,18 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from eufy_home_security.devices.live_open import LiveOpen, LiveStop
-from eufy_home_security.devices.live_view import Lens, LensView, live_view
-from eufy_home_security.exceptions import (
+from anker_eufy_security.devices.live_open import LiveOpen, LiveStop
+from anker_eufy_security.devices.live_view import Lens, LensView, live_view
+from anker_eufy_security.exceptions import (
     CommandNotAppliedError,
     CommandRejectedError,
     UnsupportedError,
 )
-from eufy_home_security.p2p.media import MediaFrame, MediaKeyType, MediaKind, VideoVariant
-from eufy_home_security.p2p.session import P2PCredentials, StationSession
-from eufy_home_security.p2p.session.media_stream import MediaStream
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import MEDIA_KEYFRAME, FakeStation
+from anker_eufy_security.p2p.media import MediaFrame, MediaKeyType, MediaKind, VideoVariant
+from anker_eufy_security.p2p.session import P2PCredentials, StationSession
+from anker_eufy_security.p2p.session.media_stream import MediaStream
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import MEDIA_KEYFRAME, FakeStation
 
 HB2_SN = "T8010P2000054321"
 """A synthetic HomeBase 2 serial."""

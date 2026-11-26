@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from eufy_home_security.install import InstallState
+from anker_eufy_security.install import InstallState
 
 
 def test_a_request_hold_off_runs_out_and_is_never_shortened(

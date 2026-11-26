@@ -4,13 +4,13 @@ from typing import Final
 
 import pytest
 
-from eufy_home_security.devices import types
-from eufy_home_security.devices._live_open_data import LIVE_OPEN
-from eufy_home_security.devices._model_names_data import MODEL_NAMES
-from eufy_home_security.devices.app_models import APP_MODELS, APP_VERSION
-from eufy_home_security.devices.model_settings import bundled_codes
-from eufy_home_security.devices.support import Support
-from eufy_home_security.devices.types import (
+from anker_eufy_security.devices import types
+from anker_eufy_security.devices._live_open_data import LIVE_OPEN
+from anker_eufy_security.devices._model_names_data import MODEL_NAMES
+from anker_eufy_security.devices.app_models import APP_MODELS, APP_VERSION
+from anker_eufy_security.devices.model_settings import bundled_codes
+from anker_eufy_security.devices.support import Support
+from anker_eufy_security.devices.types import (
     MODELS,
     ON_DEMAND_EVIDENCE,
     SERIAL_PRODUCT_CODES,
@@ -20,7 +20,7 @@ from eufy_home_security.devices.types import (
     product_name,
     serial_prefix,
 )
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def test_registry_keys_match_models() -> None:

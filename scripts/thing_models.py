@@ -32,8 +32,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Final
 
-from eufy_home_security.devices import recipes
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.devices import recipes
+from anker_eufy_security.testing import SYNTHETIC
 
 ROOT: Final = Path(__file__).resolve().parent.parent
 GOLDENS_DIR: Final = ROOT / "tests" / "fixtures" / "thing_models"
@@ -164,7 +164,7 @@ class Case:
     device: Mapping[str, Any]
     payload: Any
     builder: str | None
-    """The :mod:`eufy_home_security.devices.recipes` builder that reproduces the
+    """The :mod:`anker_eufy_security.devices.recipes` builder that reproduces the
     recipe, or None when the library deliberately sends something else."""
     verified: bool = False
     """Proven on hardware (a live send with the expected answer)."""
@@ -602,7 +602,7 @@ def write_inventory(cache: Path, out: Path) -> None:
 def product_codes(devices: Iterable[Mapping[str, Any]]) -> list[str]:
     """The distinct product codes of a raw device list, sorted: each device's
     ``device_new_pn``, else its serial's catalogued model."""
-    from eufy_home_security.devices import model_for_serial  # noqa: PLC0415
+    from anker_eufy_security.devices import model_for_serial  # noqa: PLC0415
 
     codes: set[str] = set()
     for device in devices:
@@ -620,13 +620,13 @@ def product_codes(devices: Iterable[Mapping[str, Any]]) -> list[str]:
 async def fetch(store_path: Path, out: Path, codes: Sequence[str]) -> None:
     import aiohttp  # noqa: PLC0415 - only this command needs the network
 
-    from eufy_home_security import EufySecurity, LoginNeed  # noqa: PLC0415
-    from eufy_home_security.storage import JsonFileStore, async_cached_account  # noqa: PLC0415
+    from anker_eufy_security import EufySecurity, LoginNeed  # noqa: PLC0415
+    from anker_eufy_security.storage import JsonFileStore, async_cached_account  # noqa: PLC0415
 
     store = JsonFileStore(store_path)
     email = await async_cached_account(store)
     if email is None:
-        raise SystemExit(f"{store_path} holds no account: log in with eufy-security first")
+        raise SystemExit(f"{store_path} holds no account: log in with anker-eufy-security first")
     async with (
         aiohttp.ClientSession() as http,
         EufySecurity(http, email, None, store=store) as eufy,
@@ -635,7 +635,7 @@ async def fetch(store_path: Path, out: Path, codes: Sequence[str]) -> None:
         if status.login_need is not LoginNeed.NONE:
             raise SystemExit(
                 f"no usable cached session ({status.login_need.value}); this script never "
-                "logs in: refresh the session with eufy-security first"
+                "logs in: refresh the session with anker-eufy-security first"
             )
         api = eufy.cloud
         if not codes:

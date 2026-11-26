@@ -52,7 +52,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CACHE = ROOT / ".work" / "cache" / "things_all"
-DEFAULT_OUT = ROOT / "src" / "eufy_home_security" / "devices" / "_model_names_data.py"
+DEFAULT_OUT = ROOT / "src" / "anker_eufy_security" / "devices" / "_model_names_data.py"
 PREFIX_LEN = 5
 SERIAL_LEN = 16
 #: A table has at least this many product-code keys with string values.

@@ -7,7 +7,7 @@ release-please keeps the public version) and builds the wheel into ``dist/``.
 Dev builds only: PyPI rejects local labels.
 
     VIRTUAL_ENV= uv run python scripts/dev_build.py
-    uv pip install --reinstall-package eufy-home-security dist/eufy_home_security-*+g*.whl
+    uv pip install --reinstall-package anker-eufy-security dist/anker_eufy_security-*+g*.whl
 
 Extra arguments are passed to ``uv build``.
 """
@@ -63,7 +63,7 @@ def main(argv: list[str]) -> int:
         cmd = ["uv", "build", "--wheel", "--out-dir", str(ROOT / "dist"), *argv, str(tree)]
         result = subprocess.run(cmd, check=False)
     if result.returncode == 0:
-        print(f"built eufy-home-security {version}")
+        print(f"built anker-eufy-security {version}")
     return result.returncode
 
 

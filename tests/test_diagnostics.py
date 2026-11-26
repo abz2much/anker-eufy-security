@@ -6,25 +6,25 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from eufy_home_security import EufySecurity, redact_serial
-from eufy_home_security.cloud import const
-from eufy_home_security.cloud.api import _SessionExpiredError
-from eufy_home_security.cloud.models import CAMERA_INFO_PARAM, CipherRecord
-from eufy_home_security.diagnostics import (
+from anker_eufy_security import EufySecurity, redact_serial
+from anker_eufy_security.cloud import const
+from anker_eufy_security.cloud.api import _SessionExpiredError
+from anker_eufy_security.cloud.models import CAMERA_INFO_PARAM, CipherRecord
+from anker_eufy_security.diagnostics import (
     HOUSE,
     INVITES,
     SECURITY_DEVICES,
     SECURITY_STATIONS,
     house_source,
 )
-from eufy_home_security.exceptions import (
+from anker_eufy_security.exceptions import (
     CloudApiError,
     NoCachedSessionError,
     RateLimitedError,
     SessionReplacedError,
 )
-from eufy_home_security.storage import MemoryStore
-from eufy_home_security.testing import (
+from anker_eufy_security.storage import MemoryStore
+from anker_eufy_security.testing import (
     SYNTHETIC,
     FakeCloud,
     FakeStation,

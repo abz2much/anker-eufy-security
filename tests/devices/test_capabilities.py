@@ -4,7 +4,7 @@ from types import MappingProxyType
 
 import pytest
 
-from eufy_home_security.devices.capabilities import (
+from anker_eufy_security.devices.capabilities import (
     FALLBACK_PROFILES,
     KIND_MARKERS,
     PROFILES,
@@ -18,10 +18,10 @@ from eufy_home_security.devices.capabilities import (
     profile_for_serial,
     ring_evidence,
 )
-from eufy_home_security.devices.ptz import PTZ_IDENTIFIERS
-from eufy_home_security.devices.recipes import PtzAction
-from eufy_home_security.devices.support import Evidence, Support
-from eufy_home_security.devices.types import MODELS, DeviceKind
+from anker_eufy_security.devices.ptz import PTZ_IDENTIFIERS
+from anker_eufy_security.devices.recipes import PtzAction
+from anker_eufy_security.devices.support import Evidence, Support
+from anker_eufy_security.devices.types import MODELS, DeviceKind
 
 from .verification_log import VERIFIED_MARK, log_rows
 

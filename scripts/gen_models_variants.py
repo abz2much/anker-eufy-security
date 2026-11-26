@@ -6,7 +6,7 @@ identifier followed by ``__v``, any case) that has read conditions, in
 thing-description order: ``id`` (the property), ``key`` (the bundled setting that
 stands for it: itself, the primary when it was dropped as a same-codec variant, None
 when the file has no setting for it) and ``read_conditions`` (plain groups,
-:func:`~eufy_home_security.devices.conditions.td_conditions`). An associated condition
+:func:`~anker_eufy_security.devices.conditions.td_conditions`). An associated condition
 also carries how the device reports its property: ``param`` and ``map`` from the
 property's own read in the file, else the parameter the handler reads it from as
 reported (``probe``), and ``default``, the value the app reads when the device reports
@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Any
 
-from eufy_home_security.devices.conditions import ASSOCIATED_TYPES, td_conditions, variant_rest
+from anker_eufy_security.devices.conditions import ASSOCIATED_TYPES, td_conditions, variant_rest
 
 type Settings = dict[str, dict[str, Any]]
 type Probe = Callable[[str, Sequence[str]], int | None]

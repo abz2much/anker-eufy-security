@@ -1,6 +1,6 @@
 # eufy Security protocol reference
 
-How `eufy-home-security` talks to a eufy Security **HomeBase 3 (T8030)** and the
+How `anker-eufy-security` talks to a eufy Security **HomeBase 3 (T8030)** and the
 cameras paired to it: what goes on the wire and why. This is the reference for
 maintainers and for anyone porting the client. For the library API, see the
 how-to and reference docs.
@@ -122,13 +122,13 @@ Untagged statements in a section inherit that section's tag.
 
 | layer | module |
 |---|---|
-| cloud envelope, login, devices, ciphers | `src/eufy_home_security/cloud/crypto.py`, `cloud/api.py`, `cloud/const.py`, `cloud/models.py` |
-| PPPP datagrams, the UDP transport and LAN discovery | `src/eufy_home_security/p2p/pppp.py`, `p2p/transport.py`, `p2p/did.py`, `p2p/discovery.py` |
-| XZYH framing | `src/eufy_home_security/p2p/xzyh.py` |
-| session crypto | `src/eufy_home_security/p2p/crypto.py` |
-| command builders and decoders | `src/eufy_home_security/p2p/messages.py`, `p2p/params.py`, `p2p/notify.py`, `p2p/alarm.py`, `p2p/mode_actions.py`, `p2p/storage_info.py` |
-| media | `src/eufy_home_security/p2p/media.py` |
-| session orchestration | `src/eufy_home_security/p2p/session/` |
-| the MQTT transport (selection, envelope, TLS, client) | `src/eufy_home_security/mqtt/selection.py`, `mqtt/envelope.py`, `mqtt/tls.py`, `mqtt/client.py`, `mqtt/account.py`; the certificate in `cloud/api.py` |
-| cloud push registration and decoding | `src/eufy_home_security/push/fcm.py`, `push/decode.py`, `push/const.py` |
-| command names and the per-model settings | `src/eufy_home_security/devices/` (see `docs/reference/devices.md`, `docs/reference/models-schema.md`) |
+| cloud envelope, login, devices, ciphers | `src/anker_eufy_security/cloud/crypto.py`, `cloud/api.py`, `cloud/const.py`, `cloud/models.py` |
+| PPPP datagrams, the UDP transport and LAN discovery | `src/anker_eufy_security/p2p/pppp.py`, `p2p/transport.py`, `p2p/did.py`, `p2p/discovery.py` |
+| XZYH framing | `src/anker_eufy_security/p2p/xzyh.py` |
+| session crypto | `src/anker_eufy_security/p2p/crypto.py` |
+| command builders and decoders | `src/anker_eufy_security/p2p/messages.py`, `p2p/params.py`, `p2p/notify.py`, `p2p/alarm.py`, `p2p/mode_actions.py`, `p2p/storage_info.py` |
+| media | `src/anker_eufy_security/p2p/media.py` |
+| session orchestration | `src/anker_eufy_security/p2p/session/` |
+| the MQTT transport (selection, envelope, TLS, client) | `src/anker_eufy_security/mqtt/selection.py`, `mqtt/envelope.py`, `mqtt/tls.py`, `mqtt/client.py`, `mqtt/account.py`; the certificate in `cloud/api.py` |
+| cloud push registration and decoding | `src/anker_eufy_security/push/fcm.py`, `push/decode.py`, `push/const.py` |
+| command names and the per-model settings | `src/anker_eufy_security/devices/` (see `docs/reference/devices.md`, `docs/reference/models-schema.md`) |

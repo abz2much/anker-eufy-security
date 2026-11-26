@@ -8,15 +8,15 @@ from dataclasses import replace
 
 import pytest
 
-from eufy_home_security.exceptions import (
+from anker_eufy_security.exceptions import (
     CaptureStoppedError,
     DeviceTimeoutError,
     StationUnreachableError,
 )
-from eufy_home_security.p2p import broadcast as broadcast_module
-from eufy_home_security.p2p.broadcast import StreamBroadcast
-from eufy_home_security.p2p.media import MediaFrame, MediaKind, VideoCodec
-from eufy_home_security.p2p.mpegts import TS_PACKET_LEN
+from anker_eufy_security.p2p import broadcast as broadcast_module
+from anker_eufy_security.p2p.broadcast import StreamBroadcast
+from anker_eufy_security.p2p.media import MediaFrame, MediaKind, VideoCodec
+from anker_eufy_security.p2p.mpegts import TS_PACKET_LEN
 
 AAC = b"\xff\xf1\x60\x40\x01\x7f\xfc" + b"\x11" * 16
 

@@ -11,9 +11,9 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from eufy_home_security.cloud.api import EufyCloudApi
-from eufy_home_security.storage import SessionCache
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.cloud.api import EufyCloudApi
+from anker_eufy_security.storage import SessionCache
+from anker_eufy_security.testing import SYNTHETIC
 
 from .conftest import FAKE_OWNER_ID, FakeMega
 
@@ -135,7 +135,7 @@ async def test_an_account_whose_lists_are_all_empty_is_suspended(
     with aioresponses() as mock:
         fake_mega.install(mock)
         api = _api(http, cache)
-        with caplog.at_level(logging.WARNING, logger="eufy_home_security.cloud.api"):
+        with caplog.at_level(logging.WARNING, logger="anker_eufy_security.cloud.api"):
             assert await api.async_get_devices() == []
         assert api.suspended_regions() == ["eu"]
         assert "the account lists no devices in the eu region(s)" in caplog.text

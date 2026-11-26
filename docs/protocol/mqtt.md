@@ -1,7 +1,7 @@
 # MQTT: the eufy security broker
 
 The eufy app reaches some devices, its Wi-Fi smart locks first, through an MQTT broker
-of eufy's instead of a P2P session. `eufy_home_security.mqtt` holds the client side of
+of eufy's instead of a P2P session. `anker_eufy_security.mqtt` holds the client side of
 that transport: the certificate, which devices use it, the topics and the message
 envelope, and an asyncio client. The command a device runs (the `trans` text) is the
 caller's: this layer carries it as given.
@@ -23,7 +23,7 @@ The property is read from the bundled settings files (`devices/data/models/<PN>.
 never from a list of device types, so a regenerated data set moves products in or out by
 itself. In the bundled data these models declare it: T8501, T8531, T8532, T85D0, T85D2,
 T85F0, T85F1, T85L0, T85L1, T85M0, T85M1, T85P0, T85P1, T85V0, T8028 and T6010. T8L04, a
-light, declares it too and is picked only when its entry's category is one of the three. `eufy_home_security.mqtt.mqtt_devices()`
+light, declares it too and is picked only when its entry's category is one of the three. `anker_eufy_security.mqtt.mqtt_devices()`
 applies the rule to a device list.
 
 With no MQTT device on the account the app asks for no certificate and opens no
@@ -151,7 +151,7 @@ MQTT devices whose `region` is its scope (a device without one counts as the clo
 sends each call to the client of its device's scope:
 
 ```python
-from eufy_home_security.mqtt.account import EufyMqttAccount
+from anker_eufy_security.mqtt.account import EufyMqttAccount
 
 mqtt = EufyMqttAccount(eufy.cloud)  # needs the `mqtt` extra
 await mqtt.async_start(devices)  # the cloud device list; a client per scope with MQTT devices
@@ -209,6 +209,6 @@ Start, device update and stop run one at a time: a stop during a device update w
 it, then stops what it started, and a device update after a stop (one queued behind it
 too) does nothing until the next start.
 
-`eufy-security mqtt` lists the account's MQTT devices and their topics; with `--connect`
+`anker-eufy-security mqtt` lists the account's MQTT devices and their topics; with `--connect`
 it fetches the certificate, connects, subscribes and counts what arrives, and never
 publishes ([cli.md](../reference/cli.md)).

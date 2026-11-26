@@ -1,6 +1,6 @@
 # Regenerate the settings files
 
-The per-model settings (`src/eufy_home_security/devices/data/models/<PN>.json` and
+The per-model settings (`src/anker_eufy_security/devices/data/models/<PN>.json` and
 `INDEX.json`) are generated offline from the eufy app's thing models and ship with each
 release. Besides the settings, a model's file carries its battery reads (`battery`) and
 how its handler groups an `SDINFO_EX` storage status (`sd_status_groups`). Nothing at
@@ -10,7 +10,7 @@ regenerated file in a library release. The format is in
 
 ## When
 
-- The eufy app ships a new release, or a model's handler changes. `eufy-security
+- The eufy app ships a new release, or a model's handler changes. `anker-eufy-security
   status` and `EufySecurity.model_status()` report a model whose cloud thing description
   is newer than the bundled one (`vendor data newer than bundled (td N > M)`).
 - A product code has no bundled file: `model_status()` says `cloud-listed` or
@@ -38,7 +38,7 @@ for batches it has not seen.
 
 ## Fetch
 
-`fetch` uses a cached cloud session (log in with `eufy-security login` first; the
+`fetch` uses a cached cloud session (log in with `anker-eufy-security login` first; the
 script never logs in) and writes one directory per product code:
 
 ```

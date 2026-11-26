@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from eufy_home_security.devices.support import Evidence, Support
-from eufy_home_security.events import (
+from anker_eufy_security.devices.support import Evidence, Support
+from anker_eufy_security.events import (
     ALARM_PUSH_MAX_AGE_SECONDS,
     EVENT_TIME_MAX_MS,
     EVENT_TIME_MIN_MS,
@@ -41,7 +41,7 @@ from eufy_home_security.events import (
     is_event_time_ms,
     is_station_recording_path,
 )
-from eufy_home_security.exceptions import (
+from anker_eufy_security.exceptions import (
     AuthenticationError,
     CipherUnusableError,
     CommunicationError,
@@ -56,8 +56,8 @@ from eufy_home_security.exceptions import (
     SessionReplacedError,
     StationUnreachableError,
 )
-from eufy_home_security.models import FrameCipher, GuardMode
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.models import FrameCipher, GuardMode
+from anker_eufy_security.testing import SYNTHETIC
 
 
 def test_connection_changed_equality_ignores_the_error() -> None:

@@ -11,12 +11,12 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from eufy_home_security import storage
-from eufy_home_security.cloud.api import EufyCloudApi
-from eufy_home_security.cloud.const import KEY_REFRESH_SLOW_RETRY
-from eufy_home_security.exceptions import LoginLimitedError
-from eufy_home_security.p2p.transport import ConnectPath
-from eufy_home_security.storage import (
+from anker_eufy_security import storage
+from anker_eufy_security.cloud.api import EufyCloudApi
+from anker_eufy_security.cloud.const import KEY_REFRESH_SLOW_RETRY
+from anker_eufy_security.exceptions import LoginLimitedError
+from anker_eufy_security.p2p.transport import ConnectPath
+from anker_eufy_security.storage import (
     CACHE_VERSION,
     JsonFileStore,
     MemoryStore,
@@ -25,7 +25,7 @@ from eufy_home_security.storage import (
     async_cached_account,
     async_forget_account,
 )
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.testing import SYNTHETIC
 
 
 async def test_file_store_roundtrip_is_private(tmp_path: Path) -> None:

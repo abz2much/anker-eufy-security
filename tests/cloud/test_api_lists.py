@@ -10,16 +10,16 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from eufy_home_security.cloud import const
-from eufy_home_security.cloud.api import EufyCloudApi
-from eufy_home_security.exceptions import (
+from anker_eufy_security.cloud import const
+from anker_eufy_security.cloud.api import EufyCloudApi
+from anker_eufy_security.exceptions import (
     AuthenticationError,
     KeyExchangeRefusedError,
     NoCachedSessionError,
     SessionReplacedError,
 )
-from eufy_home_security.storage import SessionCache
-from eufy_home_security.testing import SYNTHETIC, security_device, security_station
+from anker_eufy_security.storage import SessionCache
+from anker_eufy_security.testing import SYNTHETIC, security_device, security_station
 
 from .conftest import FAKE_ECC_KEY, FAKE_OWNER_ID, FakeMega
 
@@ -133,7 +133,7 @@ async def test_house_and_invitation_answers_are_logged_as_counts(
             {"id": 3, "action_user_nick": "Robin", "action_user_email": "kim@example.invalid"},
         ]},
     }  # fmt: skip
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.cloud.api")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.cloud.api")
     with aioresponses() as mock:
         fake_mega.install(mock)
         async with aiohttp.ClientSession() as session:
@@ -142,7 +142,7 @@ async def test_house_and_invitation_answers_are_logged_as_counts(
             await api.async_list_houses("eu")
             await api.async_list_invites("eu")
     logged = "\n".join(
-        r.getMessage() for r in caplog.records if r.name == "eufy_home_security.cloud.api"
+        r.getMessage() for r in caplog.records if r.name == "anker_eufy_security.cloud.api"
     )
     for private in ("Cottage", "Lakeside", "Kim", "Robin", "59.4372", "kim@"):
         assert private not in logged
@@ -155,14 +155,14 @@ async def test_a_summarised_list_is_written_whole_to_the_wire_dump(
 ) -> None:
     """The debug log shows the list as a count; the wire dump has its entries."""
     fake_mega.houses = [{"house_id": "house-1", "house_name": "Cottage"}]
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.wire.cloud")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.wire.cloud")
     with aioresponses() as mock:
         fake_mega.install(mock)
         async with aiohttp.ClientSession() as session:
             api = _api(session, cache)
             await api.async_login()
             await api.async_list_houses("eu")
-    wire = [r.getMessage() for r in caplog.records if r.name == "eufy_home_security.wire.cloud"]
+    wire = [r.getMessage() for r in caplog.records if r.name == "anker_eufy_security.wire.cloud"]
     dumped = [line for line in wire if line.startswith(f"← {const.HOUSES_PATH} data ")]
     assert len(dumped) == 1
     assert '"house_infos": [{"house_id": ' in dumped[0]

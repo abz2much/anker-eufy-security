@@ -16,16 +16,16 @@ from typing import Any, cast
 
 import pytest
 
-import eufy_home_security.p2p.session as session_mod
-import eufy_home_security.p2p.session as session_module
-import eufy_home_security.p2p.session.media_stream as media_stream_module
-from eufy_home_security._logging import set_secret_logging, set_wire_logging
-from eufy_home_security.devices.recipes import (
+import anker_eufy_security.p2p.session as session_mod
+import anker_eufy_security.p2p.session as session_module
+import anker_eufy_security.p2p.session.media_stream as media_stream_module
+from anker_eufy_security._logging import set_secret_logging, set_wire_logging
+from anker_eufy_security.devices.recipes import (
     goto_preset,
     query_preset_positions,
     set_default_preset,
 )
-from eufy_home_security.events import (
+from anker_eufy_security.events import (
     AccountMismatch,
     AlarmChanged,
     AlarmDelayChanged,
@@ -40,7 +40,7 @@ from eufy_home_security.events import (
     SecurityEvent,
     StorageChanged,
 )
-from eufy_home_security.exceptions import (
+from anker_eufy_security.exceptions import (
     AccountRejectedError,
     CameraWakeError,
     CipherUnavailableError,
@@ -61,19 +61,19 @@ from eufy_home_security.exceptions import (
     StationUnreachableError,
     UnsupportedError,
 )
-from eufy_home_security.models import STATION_CHANNEL, GuardMode, ValueSource
-from eufy_home_security.p2p import transport as transport_module
-from eufy_home_security.p2p.alarm import AlarmFrame
-from eufy_home_security.p2p.crypto import (
+from anker_eufy_security.models import STATION_CHANNEL, GuardMode, ValueSource
+from anker_eufy_security.p2p import transport as transport_module
+from anker_eufy_security.p2p.alarm import AlarmFrame
+from anker_eufy_security.p2p.crypto import (
     CONN_INIT_ECC_VERSION,
     FRAME_PLAIN,
     FRAME_SESSION_ECB,
     FRAME_STATIC_ECB,
     ecb_encrypt,
 )
-from eufy_home_security.p2p.did import Did, static_key
-from eufy_home_security.p2p.encoder import StreamEncoder
-from eufy_home_security.p2p.media import (
+from anker_eufy_security.p2p.did import Did, static_key
+from anker_eufy_security.p2p.encoder import StreamEncoder
+from anker_eufy_security.p2p.media import (
     VIDEO_CODEC_H264,
     MediaDecoder,
     MediaFrame,
@@ -85,12 +85,12 @@ from eufy_home_security.p2p.media import (
     generate_media_ecc_key,
     generate_media_rsa_key,
 )
-from eufy_home_security.p2p.messages import (
+from anker_eufy_security.p2p.messages import (
     RECEIPT_NOT_HANDLED,
     STANDALONE_RECEIPT_LEN,
     history_cursor_time,
 )
-from eufy_home_security.p2p.session import (
+from anker_eufy_security.p2p.session import (
     PARAM_SETTLE,
     CommandOutcome,
     CredentialProvider,
@@ -100,14 +100,14 @@ from eufy_home_security.p2p.session import (
     StationSession,
     _scalar_result,
 )
-from eufy_home_security.p2p.session.core import Inbound, _receipt_error
-from eufy_home_security.p2p.session.media_stream import MediaStream
-from eufy_home_security.p2p.session.param_state import ParamOrigin
-from eufy_home_security.p2p.transport import PPPPTransport
-from eufy_home_security.p2p.xzyh import Frame, FrameCipher, FrameType
-from eufy_home_security.recordings import RecordingRef, decode_ref, encode_ref
-from eufy_home_security.testing import SYNTHETIC
-from eufy_home_security.testing.station import (
+from anker_eufy_security.p2p.session.core import Inbound, _receipt_error
+from anker_eufy_security.p2p.session.media_stream import MediaStream
+from anker_eufy_security.p2p.session.param_state import ParamOrigin
+from anker_eufy_security.p2p.transport import PPPPTransport
+from anker_eufy_security.p2p.xzyh import Frame, FrameCipher, FrameType
+from anker_eufy_security.recordings import RecordingRef, decode_ref, encode_ref
+from anker_eufy_security.testing import SYNTHETIC
+from anker_eufy_security.testing.station import (
     MEDIA_AUDIO,
     MEDIA_GOP,
     MEDIA_HEIGHT,
@@ -252,7 +252,7 @@ async def test_handshake_logs_key_material_only_with_secret_logging(
     session = make_session(station, Provider(station))
     set_secret_logging(secrets)
     try:
-        with caplog.at_level(logging.DEBUG, logger="eufy_home_security.p2p"):
+        with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.p2p"):
             await session.async_get_params()
     finally:
         set_secret_logging(False)
@@ -277,7 +277,7 @@ async def test_connect_reads_params_and_guard_mode(
     events: list[Event] = []
     session.subscribe(events.append)
     try:
-        with caplog.at_level(logging.DEBUG, logger="eufy_home_security.p2p.session"):
+        with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.p2p.session"):
             dump = await session.async_get_params()
     finally:
         await session.async_close()
@@ -512,7 +512,7 @@ async def test_a_dump_key_the_library_does_not_read_is_kept_and_logged_once(
 ) -> None:
     station.dump_extra = {"future_list": [{"channel": 0}], "db_bypass_str": []}
     session = make_session(station, Provider(station))
-    caplog.set_level(logging.INFO, logger="eufy_home_security.p2p.session")
+    caplog.set_level(logging.INFO, logger="anker_eufy_security.p2p.session")
     try:
         dump = await session.async_get_params(expect_channels={0})
         await session.async_get_params(expect_channels={0})
@@ -1119,7 +1119,7 @@ async def test_a_channel_value_command_carries_no_account(station: FakeStation) 
 async def test_a_string_command_carries_its_number_and_logs_no_coordinates(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
     set_wire_logging(True)
     session = make_session(station, Provider(station))
     try:
@@ -1148,7 +1148,7 @@ async def test_a_string_body_is_hexdumped_masked_in_the_wire_log(
 ) -> None:
     """The frame line of a string + int body (not JSON) masks the coordinates and the
     owner account id it carries, in text and in hex, under either session cipher."""
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
     set_wire_logging(True)
     session = make_rsa_session(station) if rsa else make_session(station, Provider(station))
     try:
@@ -1250,7 +1250,7 @@ async def test_a_late_not_handled_receipt_is_awaited_and_raised(
     try:
         await session.async_connect()
         with (
-            caplog.at_level(logging.DEBUG, logger="eufy_home_security.p2p.session"),
+            caplog.at_level(logging.DEBUG, logger="anker_eufy_security.p2p.session"),
             pytest.raises(CommandUnsupportedError) as rejected,
         ):
             await session.async_send_command(1107, timeout=0.5)
@@ -1975,7 +1975,7 @@ async def test_each_history_page_is_logged_with_its_counts_and_why_paging_stops(
         serial, Provider(station), host="127.0.0.1", port=station.discovery_port
     )
     try:
-        with caplog.at_level(logging.DEBUG, logger="eufy_home_security.p2p.session"):
+        with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.p2p.session"):
             await session.async_list_history("20260916", **kwargs)
     finally:
         await session.async_close()
@@ -2352,7 +2352,7 @@ def _count(events: list[Event], kind: type, event_type: int | None = None) -> in
 async def test_a_foreign_account_stamp_is_reported_once_per_connection(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security")
     session = make_session(station, Provider(station))
     events: list[Event] = []
     session.subscribe(events.append)
@@ -2654,7 +2654,7 @@ async def test_recording_plays_to_its_end(
     end_cipher: int | None,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.p2p.session")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.p2p.session")
     end_frame = end_cipher is not None
     if end_cipher is None:
         station.playback_end_delay = station.download_end_delay = None
@@ -2830,7 +2830,7 @@ async def test_only_the_end_value_ends_a_playback(
     station: FakeStation, form: str, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Pause (1), drop (3) and unknown values are logged by name and leave the stream open."""
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.p2p.session")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.p2p.session")
     session = make_session(station, Provider(station))
     session._keys.static_key = station.static_key
     session._keys.session_key = station.session_key
@@ -2860,7 +2860,7 @@ async def test_only_the_end_value_ends_a_playback(
 async def test_an_end_frame_under_another_key_does_not_end_this_playback(
     station: FakeStation, caplog: pytest.LogCaptureFixture
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="eufy_home_security.p2p.session")
+    caplog.set_level(logging.DEBUG, logger="anker_eufy_security.p2p.session")
     session = make_session(station, Provider(station))
     session._keys.static_key = bytes(16)
     stream, dispatch = _started_recording(session)
@@ -2904,7 +2904,7 @@ async def test_a_wake_failure_receipt_fails_the_live_open_at_once(
     station.live_open_receipt_code = -204
     station.live_open_receipt_delay = 0.2
     session = make_session(station, Provider(station))
-    caplog.set_level(logging.INFO, logger="eufy_home_security.p2p.session")
+    caplog.set_level(logging.INFO, logger="anker_eufy_security.p2p.session")
     try:
         stream = await session.async_open_live(0, first_frame_timeout=5.0)
         started = time.monotonic()
@@ -3163,7 +3163,7 @@ async def test_first_good_keyframe_pins_the_stream_key(
         first_frame_timeout=1.0,
         idle_timeout=1.0,
     )
-    with caplog.at_level(logging.DEBUG, logger="eufy_home_security.p2p"):
+    with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.p2p"):
         # Before the first keyframe, one not wrapped for this stream's key is another
         # stream's: wrapped to another RSA key, or decrypting to something not Annex-B.
         stream._feed(FrameType.VIDEO_FRAME, keyframe(to=other_key.public_key()))
@@ -3199,7 +3199,7 @@ async def test_a_stream_whose_keyframes_never_decode_warns_at_the_first_frame_ti
         idle_timeout=1.0,
     )
     foreign = media_keyframe(other_key.public_key(), os.urandom(16))
-    with caplog.at_level(logging.DEBUG, logger="eufy_home_security.p2p"):
+    with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.p2p"):
         for _ in range(3):
             stream._feed(FrameType.VIDEO_FRAME, video_record(foreign, keyframe=True))
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
@@ -3228,7 +3228,7 @@ async def test_a_corrupt_keyframe_with_the_pinned_key_still_warns(
     )
     stream._feed(FrameType.VIDEO_FRAME, video_record(body, keyframe=True, timestamp_ms=1000))
     stream._feed(FrameType.VIDEO_FRAME, video_record(MEDIA_PFRAME, keyframe=False))
-    with caplog.at_level(logging.DEBUG, logger="eufy_home_security.p2p"):
+    with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.p2p"):
         stream._feed(FrameType.VIDEO_FRAME, video_record(corrupt, keyframe=True, timestamp_ms=1960))
         stream._feed(FrameType.VIDEO_FRAME, video_record(MEDIA_PFRAME, keyframe=False))
     assert [(await anext(stream)).data for _ in range(2)] == [MEDIA_KEYFRAME, MEDIA_PFRAME]
@@ -3322,7 +3322,7 @@ async def test_a_consumer_close_after_the_end_discards_what_is_left(
     stream._feed(FrameType.VIDEO_FRAME, video_record(MEDIA_PFRAME, keyframe=False))
     for _ in range(2):
         stream._feed(FrameType.AUDIO_FRAME, audio_record(MEDIA_AUDIO))
-    with caplog.at_level(logging.DEBUG, logger="eufy_home_security.p2p.session.media_stream"):
+    with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.p2p.session.media_stream"):
         assert [(await anext(stream)).data for _ in range(2)] == [MEDIA_KEYFRAME, MEDIA_PFRAME]
         await stream.aclose()
         with pytest.raises(StopAsyncIteration):
@@ -3516,7 +3516,7 @@ async def test_a_keyframe_of_another_codec_is_counted_and_logged(
     h264 = media_keyframe(rsa_key.public_key(), bytes(range(16)), clear=H264_KEYFRAME)
     wrapped = len(body) - 1 - len(MEDIA_KEYFRAME)  # the RSA-wrapped stream key comes first
     switched = body[:wrapped] + h264[wrapped:]  # the same stream key, another picture
-    with caplog.at_level(logging.DEBUG, logger="eufy_home_security.p2p.session.media_stream"):
+    with caplog.at_level(logging.DEBUG, logger="anker_eufy_security.p2p.session.media_stream"):
         stream._feed(
             FrameType.VIDEO_FRAME,
             video_record(switched, keyframe=True, codec=VIDEO_CODEC_H264, width=640, height=920),

@@ -1,9 +1,8 @@
-# eufy-home-security
+# anker-eufy-security
 
-[![PyPI](https://img.shields.io/pypi/v/eufy-home-security)](https://pypi.org/project/eufy-home-security/)
-[![Python](https://img.shields.io/pypi/pyversions/eufy-home-security)](https://pypi.org/project/eufy-home-security/)
-[![CI](https://github.com/alaraun/python-eufy-home-security/actions/workflows/ci.yml/badge.svg)](https://github.com/alaraun/python-eufy-home-security/actions/workflows/ci.yml)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/alaraun)
+[![PyPI](https://img.shields.io/pypi/v/anker-eufy-security)](https://pypi.org/project/anker-eufy-security/)
+[![Python](https://img.shields.io/pypi/pyversions/anker-eufy-security)](https://pypi.org/project/anker-eufy-security/)
+[![CI](https://github.com/abz2much/anker-eufy-security/actions/workflows/ci.yml/badge.svg)](https://github.com/abz2much/anker-eufy-security/actions/workflows/ci.yml)
 
 Asyncio Python library and command-line tool for **eufy Security** systems. It talks
 to the HomeBase and its cameras directly over the local network, and uses eufy's cloud
@@ -11,11 +10,16 @@ only for login, keys and push events. It is written for a Home Assistant integra
 but it has no Home Assistant dependency and works on its own.
 
 **Home Assistant users:** install the
-[Anker eufy Home Security integration](https://github.com/alaraun/homeassistant-eufy-home-security)
-through HACS, following its
-[installation steps](https://github.com/alaraun/homeassistant-eufy-home-security#installation).
-This package is the Python library that integration uses; Home Assistant installs it
-automatically, so do not add this repository to HACS.
+[Anker eufy Integration](https://github.com/abz2much/anker-eufy-integration) through
+HACS. This package is the Python library that integration uses; Home Assistant installs
+it automatically, so do not add this repository to HACS.
+
+**Origin.** This library is based on Alar Aun's
+[eufy-home-security](https://github.com/alaraun/python-eufy-home-security) (MIT), from
+its v0.4.19 release, under its own name (`anker-eufy-security`, import
+`anker_eufy_security`) so both can be installed side by side. What differs from upstream
+is listed in [CHANGES-FROM-UPSTREAM.md](CHANGES-FROM-UPSTREAM.md); see also
+[NOTICE](NOTICE).
 
 > **Status: beta, incomplete.** This is a 0.x release. It works day to day on the
 > hardware it was developed against, but device coverage is narrow, much of the
@@ -69,8 +73,8 @@ broker connect step, name lookup to TLS handshake, in the event loop's executor)
 | API | not stable: names and signatures may change in any 0.x release |
 | packaging | a pure-Python wheel with typing (`py.typed`) on PyPI |
 
-The full picture is in the generated [support matrix](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/reference/devices.md) and
-the [hardware verification page](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/reference/hardware-verification.md). A setting comes from
+The full picture is in the generated [support matrix](https://github.com/abz2much/anker-eufy-security/blob/main/docs/reference/devices.md) and
+the [hardware verification page](https://github.com/abz2much/anker-eufy-security/blob/main/docs/reference/hardware-verification.md). A setting comes from
 eufy's code, not from a test on hardware: it may be rejected by a device, and the
 page names the ones written and read back.
 
@@ -84,36 +88,36 @@ page names the ones written and read back.
   connects through eufy's rendezvous servers instead (outbound UDP 32100 and a cloud
   session for its key). Login and push work from anywhere.
 - If inbound UDP is filtered: a fixed IP and a pinned local port per station.
-  `eufy-security network` prints what each station needs.
+  `anker-eufy-security network` prints what each station needs.
 
 ## Install
 
 ```
-uv add eufy-home-security                       # the library, in a uv project (or: pip install eufy-home-security)
-uv add "eufy-home-security[mqtt]"               # with the MQTT transport (aiomqtt), for Wi-Fi locks
-uv tool install eufy-home-security              # the eufy-security CLI on PATH
-uvx --from eufy-home-security eufy-security --help   # run once
+uv add anker-eufy-security                       # the library, in a uv project (or: pip install anker-eufy-security)
+uv add "anker-eufy-security[mqtt]"               # with the MQTT transport (aiomqtt), for Wi-Fi locks
+uv tool install anker-eufy-security              # the anker-eufy-security CLI on PATH
+uvx --from anker-eufy-security anker-eufy-security --help   # run once
 ```
 
-The development version: `uv add "eufy-home-security @ git+https://github.com/alaraun/python-eufy-home-security"`,
-or from a checkout `uv sync && uv run eufy-security --help`.
+The development version: `uv add "anker-eufy-security @ git+https://github.com/abz2much/anker-eufy-security"`,
+or from a checkout `uv sync && uv run anker-eufy-security --help`.
 
 ## Usage
 
 ### Command line
 
 ```
-eufy-security login                 # asks for the password and the e-mailed code once
-eufy-security status                # guard mode, firmware, storage, every paired device
-eufy-security guard set home
-eufy-security settings --model T8160 # a model's settings, keyed by eufy's identifiers
-eufy-security set detection_sensitivity 4 --channel 0
-eufy-security live --channel 0 --seconds 10 --out clip
-eufy-security monitor               # print events as they arrive
+anker-eufy-security login                 # asks for the password and the e-mailed code once
+anker-eufy-security status                # guard mode, firmware, storage, every paired device
+anker-eufy-security guard set home
+anker-eufy-security settings --model T8160 # a model's settings, keyed by eufy's identifiers
+anker-eufy-security set detection_sensitivity 4 --channel 0
+anker-eufy-security live --channel 0 --seconds 10 --out clip
+anker-eufy-security monitor               # print events as they arrive
 ```
 
 The password is never a flag: it comes from `$EUFY_PASSWORD`, the session cache or a
-prompt. Every command is in [the CLI reference](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/reference/cli.md).
+prompt. Every command is in [the CLI reference](https://github.com/abz2much/anker-eufy-security/blob/main/docs/reference/cli.md).
 
 ### Library
 
@@ -122,7 +126,7 @@ import asyncio
 
 import aiohttp
 
-from eufy_home_security import EufySecurity, JsonFileStore, LoginChallengeError
+from anker_eufy_security import EufySecurity, JsonFileStore, LoginChallengeError
 
 
 async def main() -> None:
@@ -157,35 +161,35 @@ await eufy.async_start()  # local sessions and cloud push, until async_close()
 
 Arming returns only after the station confirms it; a setting write returns how far it
 got (`CommandOutcome`). A failure raises a typed error from
-`eufy_home_security.exceptions`.
+`anker_eufy_security.exceptions`.
 The cache file holds the cloud session, the station keys and the account password:
 keep it private.
 
-More in [getting started](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/getting-started.md) and, for an integration, the
-[Home Assistant guide](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/how-to/home-assistant.md).
+More in [getting started](https://github.com/abz2much/anker-eufy-security/blob/main/docs/getting-started.md) and, for an integration, the
+[Home Assistant guide](https://github.com/abz2much/anker-eufy-security/blob/main/docs/how-to/home-assistant.md).
 
 ## Documentation
 
 | | |
 |---|---|
-| [Getting started](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/getting-started.md) | install, login, arm, settings, events |
-| [Home Assistant integration](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/how-to/home-assistant.md) | how an integration uses the library: cache, reauth, ids, network, coordinators, events, entities, stills, streaming, errors |
-| [Command line](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/reference/cli.md) | every `eufy-security` command |
-| [Support matrix](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/reference/devices.md) · [Hardware verification](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/reference/hardware-verification.md) | what is supported, and what is proven on hardware |
-| [Add or verify a device](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/how-to/add-a-device.md) | how support is declared and proven |
-| [Regenerate the settings files](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/how-to/regenerate-models.md) · [Settings file schema](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/reference/models-schema.md) | how the per-model settings are generated, and their format |
-| [Debug logging](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/how-to/debug-logging.md) | loggers, wire dumps, redaction |
-| [Testing](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/how-to/testing.md) | end-to-end tests with `eufy_home_security.testing` |
-| [Thing models](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/reference/thing-models.md) | the app's per-model descriptions and handler recipes |
-| [Protocol reference](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/protocol/README.md) | cloud, P2P transport, session crypto, commands, events, media, lock commands, MQTT |
+| [Getting started](https://github.com/abz2much/anker-eufy-security/blob/main/docs/getting-started.md) | install, login, arm, settings, events |
+| [Home Assistant integration](https://github.com/abz2much/anker-eufy-security/blob/main/docs/how-to/home-assistant.md) | how an integration uses the library: cache, reauth, ids, network, coordinators, events, entities, stills, streaming, errors |
+| [Command line](https://github.com/abz2much/anker-eufy-security/blob/main/docs/reference/cli.md) | every `anker-eufy-security` command |
+| [Support matrix](https://github.com/abz2much/anker-eufy-security/blob/main/docs/reference/devices.md) · [Hardware verification](https://github.com/abz2much/anker-eufy-security/blob/main/docs/reference/hardware-verification.md) | what is supported, and what is proven on hardware |
+| [Add or verify a device](https://github.com/abz2much/anker-eufy-security/blob/main/docs/how-to/add-a-device.md) | how support is declared and proven |
+| [Regenerate the settings files](https://github.com/abz2much/anker-eufy-security/blob/main/docs/how-to/regenerate-models.md) · [Settings file schema](https://github.com/abz2much/anker-eufy-security/blob/main/docs/reference/models-schema.md) | how the per-model settings are generated, and their format |
+| [Debug logging](https://github.com/abz2much/anker-eufy-security/blob/main/docs/how-to/debug-logging.md) | loggers, wire dumps, redaction |
+| [Testing](https://github.com/abz2much/anker-eufy-security/blob/main/docs/how-to/testing.md) | end-to-end tests with `anker_eufy_security.testing` |
+| [Thing models](https://github.com/abz2much/anker-eufy-security/blob/main/docs/reference/thing-models.md) | the app's per-model descriptions and handler recipes |
+| [Protocol reference](https://github.com/abz2much/anker-eufy-security/blob/main/docs/protocol/README.md) | cloud, P2P transport, session crypto, commands, events, media, lock commands, MQTT |
 
 ## Contributing
 
-Reports from other hardware help most: `eufy-security status --raw` and
-`eufy-security coverage` show what a station reports, and
-[add a device](https://github.com/alaraun/python-eufy-home-security/blob/main/docs/how-to/add-a-device.md) explains how an entry becomes *verified*.
+Reports from other hardware help most: `anker-eufy-security status --raw` and
+`anker-eufy-security coverage` show what a station reports, and
+[add a device](https://github.com/abz2much/anker-eufy-security/blob/main/docs/how-to/add-a-device.md) explains how an entry becomes *verified*.
 Never post serials, credentials or captures from your home; see
-[CONTRIBUTING.md](https://github.com/alaraun/python-eufy-home-security/blob/main/CONTRIBUTING.md) and [SECURITY.md](https://github.com/alaraun/python-eufy-home-security/blob/main/SECURITY.md).
+[CONTRIBUTING.md](https://github.com/abz2much/anker-eufy-security/blob/main/CONTRIBUTING.md) and [SECURITY.md](https://github.com/abz2much/anker-eufy-security/blob/main/SECURITY.md).
 
 ```
 uv sync
@@ -200,7 +204,6 @@ This project is built in spare time and is free to use. If it is useful to you,
 donations are welcome. They are voluntary, buy no support or priority, and are not
 tax-deductible.
 
-- [Ko-fi](https://ko-fi.com/alaraun)
 
 Donated eufy hardware helps develop future features; please get in touch first.
 

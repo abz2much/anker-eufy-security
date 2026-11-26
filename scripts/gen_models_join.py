@@ -7,7 +7,7 @@ shows, over the TD's), ``meaning`` (what the app reads the value as), ``variant_
 identifier the app uses instead), the hand-read app facts of the title file (``default``,
 read-only status, option labels, ``advanced``, excluded actions, held flags members), and
 builds the file's ``source``
-block. Stdlib plus the TD readers of ``eufy_home_security.devices.td``; no
+block. Stdlib plus the TD readers of ``anker_eufy_security.devices.td``; no
 I/O. See docs/reference/models-schema.md.
 """
 
@@ -20,10 +20,10 @@ from typing import Any
 
 from gen_models_codec import GeneratorError, kind_of, public_value, specs_of, value_key
 
-from eufy_home_security.devices.labels import sentence_case, setting_name
-from eufy_home_security.devices.model_settings import BINARY_MEANINGS, SettingMeaning
-from eufy_home_security.devices.td import enum_label
-from eufy_home_security.devices.td import normalise_unit as _td_unit
+from anker_eufy_security.devices.labels import sentence_case, setting_name
+from anker_eufy_security.devices.model_settings import BINARY_MEANINGS, SettingMeaning
+from anker_eufy_security.devices.td import enum_label
+from anker_eufy_security.devices.td import normalise_unit as _td_unit
 
 __all__ = [
     "STATUS_NOTE",

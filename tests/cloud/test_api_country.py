@@ -12,10 +12,10 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from eufy_home_security.cloud import const
-from eufy_home_security.cloud.api import EufyCloudApi, _ScopeRefusedError
-from eufy_home_security.cloud.models import LoginCountry
-from eufy_home_security.exceptions import (
+from anker_eufy_security.cloud import const
+from anker_eufy_security.cloud.api import EufyCloudApi, _ScopeRefusedError
+from anker_eufy_security.cloud.models import LoginCountry
+from anker_eufy_security.exceptions import (
     CloudApiError,
     CommunicationError,
     LoginChallengeError,
@@ -23,8 +23,8 @@ from eufy_home_security.exceptions import (
     NoCachedSessionError,
     RateLimitedError,
 )
-from eufy_home_security.storage import MemoryStore, SessionCache
-from eufy_home_security.testing import SYNTHETIC
+from anker_eufy_security.storage import MemoryStore, SessionCache
+from anker_eufy_security.testing import SYNTHETIC
 
 from .conftest import FAKE_AUTH_TOKEN, FakeMega
 
@@ -670,7 +670,7 @@ async def test_a_refused_extra_country_is_skipped_until_asked_again(
         await _api(http, cache, country="EE").async_get_devices()
         fake_mega.calls.clear()
         fake_mega.code_once["login"] = _PLAIN_REFUSAL
-        with caplog.at_level(logging.WARNING, logger="eufy_home_security.cloud.api"):
+        with caplog.at_level(logging.WARNING, logger="anker_eufy_security.cloud.api"):
             await _api(http, cache, country=countries).async_login()
             api = _api(http, cache, country=countries)
             await api.async_login()
@@ -897,7 +897,7 @@ async def test_the_fallback_list_leaves_out_a_removed_scopes_devices(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A removed extra country's devices leave even when the cloud refuses the fetch."""
-    caplog.set_level(logging.INFO, logger="eufy_home_security.cloud.api")
+    caplog.set_level(logging.INFO, logger="anker_eufy_security.cloud.api")
     _with_an_extra_country(fake_mega)
     with aioresponses() as mock:
         fake_mega.install(mock)

@@ -8,7 +8,7 @@ Three ways to get pixels from a camera behind a HomeBase 3, cheapest first:
 | event recording | 1025 playback or 1024 download | the recorded HEVC + AAC stream. Its first keyframe is the 3840×2160 trigger frame. | no |
 | live stream | 1003 start / 1004 stop | live HEVC 3840×2160 at 25 fps + AAC | yes |
 
-Code: `src/eufy_home_security/p2p/media.py` (payload builders, frame parsing,
+Code: `src/anker_eufy_security/p2p/media.py` (payload builders, frame parsing,
 keyframe decrypt, `MediaDecoder`), `p2p/session/` (open, stop in `media_slot.py`;
 `MediaStream` in `media_stream.py`: receive), `p2p/messages.py` (image request and decode).
 
@@ -219,7 +219,7 @@ succeeds on a later retry.
 
 ## Choosing an image source
 
-`eufy_home_security.images` names the three sources of the table at the top as
+`anker_eufy_security.images` names the three sources of the table at the top as
 `ImageSource` (`THUMBNAIL`, `TRIGGER_FRAME`, `LIVE`) and describes each in
 `IMAGE_SOURCES` (`ImageSourceInfo`: resolution class, content type, whether it wakes the
 camera, whether it needs a recording, typical time, verification status).

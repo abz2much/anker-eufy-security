@@ -12,7 +12,7 @@ a station whose CONN_INIT is not version 8 (a T8410), declared from the eufy app
 
 Media keyframes use a separate RSA/AES-128 scheme ([media.md](media.md)).
 
-Code: `src/eufy_home_security/p2p/did.py` (static key), `p2p/crypto.py` (ECB, GCM,
+Code: `src/anker_eufy_security/p2p/did.py` (static key), `p2p/crypto.py` (ECB, GCM,
 ECIES, CONN_INIT), `p2p/messages.py` (ECB scalar frames).
 
 ## Static key **[verified]**

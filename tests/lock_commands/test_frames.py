@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from eufy_home_security.exceptions import ProtocolError
-from eufy_home_security.lock_commands import frames
+from anker_eufy_security.exceptions import ProtocolError
+from anker_eufy_security.lock_commands import frames
 
 
 def test_tlv_numbers_tags_from_a1_with_a_length_byte() -> None:
