@@ -768,19 +768,24 @@ class SecurityEvent:
 
         ``unique:<unique_id>`` when the payload carries a ``unique_id`` (both copies of a
         detection do); else ``session:<device_sn>:<session_id>:<kind>`` when it carries a
-        ``session_id``. Otherwise ``device_sn:event second:kind``, None without a device
-        or a time: seconds, because an FCM time without an inner time is whole seconds
-        while P2P ``trigger_time`` is milliseconds. ``kind`` is ``detection`` for a
-        camera detection (:data:`DETECTION_KINDS`), so a later push that classifies
-        the same detection differently is the same occurrence, else the ``event_type``:
-        a doorbell press (3103) in a detection's session is its own occurrence, not a
-        copy of the detection.
+        ``session_id`` and is not a doorbell press. Otherwise ``device_sn:event
+        second:kind``, None without a device or a time: seconds, because an FCM time
+        without an inner time is whole seconds while P2P ``trigger_time`` is
+        milliseconds. ``kind`` is ``detection`` for a camera detection
+        (:data:`DETECTION_KINDS`), so a later push that classifies the same detection
+        differently is the same occurrence, else the ``event_type``.
+
+        A doorbell press (3103) is never keyed by its session: a session spans one
+        detection's pushes, but a visitor can press more than once in it, and each press
+        must reach the consumer. Its key is its own event second, which both channels'
+        copies share (the cloud decoder takes the inner payload's time, not the outer
+        ``event_time``).
         """
         if self.unique_id is not None:
             return f"unique:{self.unique_id}"
         if self.device_sn is None:
             return None
-        if self.session_id is not None:
+        if self.session_id is not None and self.detection is not DetectionType.DOORBELL_PRESS:
             return f"session:{self.device_sn}:{self.session_id}:{_kind_token(self)}"
         if self.event_time_ms is None:
             return None

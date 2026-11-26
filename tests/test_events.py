@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import dataclasses
+import json
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
@@ -57,6 +59,8 @@ from anker_eufy_security.exceptions import (
     StationUnreachableError,
 )
 from anker_eufy_security.models import FrameCipher, GuardMode
+from anker_eufy_security.p2p.notify import decode_camera_push
+from anker_eufy_security.push.decode import decode_push
 from anker_eufy_security.testing import SYNTHETIC
 
 
@@ -669,11 +673,13 @@ def test_pushes_of_one_session_are_one_detection() -> None:
     assert dedupe.admit(other) is other
 
 
-def test_the_session_key_names_the_kind_so_a_press_is_not_a_detection() -> None:
+def test_a_detection_is_keyed_by_its_session_and_a_press_by_its_own_time() -> None:
+    """A session spans one detection's pushes, but a doorbell can be pressed more than
+    once in it: a press is keyed by its device, its own event second and 3103."""
     detection = dataclasses.replace(_P2P, session_id="s-1")
     press = dataclasses.replace(detection, event_type=DetectionType.DOORBELL_PRESS)
     assert detection.dedupe_key == "session:camera-a:s-1:detection"
-    assert press.dedupe_key == "session:camera-a:s-1:3103"
+    assert press.dedupe_key == "camera-a:1700000000:3103"
 
 
 # A doorbell ring seconds after a face detection of the same doorbell: live on an E340
@@ -724,6 +730,81 @@ def test_a_ring_after_a_face_detection_is_delivered_as_a_new_occurrence(
     assert dedupe.dropped_duplicates == 0
     assert dedupe.admit(ring) is None  # its own second copy is still a duplicate
     assert dedupe.dropped_duplicates == 1
+
+
+@pytest.mark.parametrize("gap", [60.0, 3.0], ids=["60s-apart", "3s-apart"])
+def test_every_press_in_a_detections_session_rings(gap: float) -> None:
+    """3102, then 3103, then another 3103 ``gap`` seconds later, all in one session: both
+    presses are delivered as themselves (Home Assistant fires one event per device event)."""
+    clock = _Clock()
+    dedupe = EventDeduplicator(clock=clock)
+    face = dataclasses.replace(_FACE, session_id="s-1")
+    assert dedupe.admit(face) is face
+    clock.now = 6.0
+    first = dataclasses.replace(_RING, session_id="s-1")
+    clock.now = 6.0 + gap
+    second = dataclasses.replace(first, event_time_ms=1_700_000_006_000 + int(gap * 1000))
+    for press in (first, second):
+        admitted = dedupe.admit(press)
+        assert admitted is press
+        assert not admitted.enriches
+    assert dedupe.dropped_duplicates == 0
+
+
+_PRESS_INNER: dict[str, Any] = {
+    "msg_type": 18,
+    "event_type": 3103,
+    "device_sn": "doorbell-a",
+    "station_sn": "station-a",
+    "channel": 0,
+    "trigger_time": 1_700_000_006_123,
+    "create_time": 1_700_000_006_123,
+    "session_id": "s-1",
+    "push_count": 1,
+}
+
+
+def _press_now() -> int:
+    return 1_700_000_010_000
+
+
+def _press_copies() -> tuple[SecurityEvent, SecurityEvent]:
+    """One press as both channels deliver it: the P2P cmd 2037 frame, and the FCM message
+    whose inner payload is the same object, with an outer event_time about 3 s later."""
+    local = decode_camera_push(
+        {"cmd": 2037, "payload": json.dumps(_PRESS_INNER)},
+        station_sn="station-a",
+        frame_cipher=FrameCipher.GCM,
+        now_ms=_press_now,
+    )
+    assert local is not None
+    cloud = decode_push(
+        {
+            "payload": base64.b64encode(json.dumps(_PRESS_INNER).encode()).decode(),
+            "event_time": "1700000009",
+            "station_sn": "station-a",
+            "device_sn": "doorbell-a",
+            "span_id": "span-press",
+        },
+        now_ms=_press_now,
+    )
+    return local, cloud
+
+
+def test_both_channels_copies_of_one_press_share_a_key() -> None:
+    local, cloud = _press_copies()
+    assert local.detection is cloud.detection is DetectionType.DOORBELL_PRESS
+    assert local.event_time_ms == cloud.event_time_ms == 1_700_000_006_123
+    assert local.dedupe_key == cloud.dedupe_key
+
+
+@pytest.mark.parametrize("local_first", [True, False], ids=["local-first", "cloud-first"])
+def test_both_channels_copies_of_one_press_are_delivered_once(local_first: bool) -> None:
+    local, cloud = _press_copies()
+    dedupe = EventDeduplicator()
+    copies = (local, cloud) if local_first else (cloud, local)
+    delivered = [e for e in map(dedupe.admit, copies) if e is not None and not e.enriches]
+    assert delivered == [copies[0]]
 
 
 @pytest.mark.parametrize(

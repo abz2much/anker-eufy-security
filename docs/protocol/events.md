@@ -660,17 +660,28 @@ channels through one `EventDeduplicator` per account before emitting it
 reconnects. It holds at most 256 keys, each for one hour.
 
 **Key.** `SecurityEvent.dedupe_key` = `unique:<unique_id>` when the payload carries a
-`unique_id`; else `session:<device_sn>:<session_id>:<kind>` when it carries a `session_id`;
-else `device_sn:event second:kind`. The last compares the event time in **seconds**,
+`unique_id`; else `session:<device_sn>:<session_id>:<kind>` when it carries a `session_id`
+and is not a doorbell press; else `device_sn:event second:kind`. The last compares the event time in **seconds**,
 because a cloud time without an inner time is whole seconds while P2P `trigger_time` is
 milliseconds. `kind` is `detection` for a camera detection (motion, person, pet,
 vehicle, identified person, stranger) and the `event_type` for anything else, so pushes
 that classify one detection differently (a motion push, then the same detection with a
-face id or as 3102) are one occurrence, while a doorbell press in the same second, or in
-the same session, is another. On an E340 (T8214) on a HomeBase 3, presses 6-62 s after a
-face detection (3102) were dropped as duplicates (`dropped_duplicates`) while the key was
-`session:<device_sn>:<session_id>` alone; the session was the only key the two could share
-(different seconds, no `push_count` > 1). The payloads themselves were not captured.
+face id or as 3102) are one occurrence, while a doorbell press in the same second is
+another.
+
+**A doorbell press is keyed by its own time, never its session.** A session spans one
+detection's pushes, but a visitor can press more than once in it, and a consumer (a Home
+Assistant event entity) must get one event per press. So a 3103 without a `unique_id`
+gets `device_sn:event second:3103`: two presses in one session, seconds apart, are two
+occurrences. The two channels' copies of one press share that key because both carry
+the same inner payload and the cloud decoder takes its `trigger_time`/`create_time`, not
+the outer `event_time` (about 3 s later). Two presses within one second are one
+occurrence. On an E340 (T8214) on a HomeBase 3, presses 6-62 s after a face detection
+(3102) were dropped as duplicates (`dropped_duplicates`) while presses were keyed by
+session; the session was the only key they could share with the detection (different
+seconds, no `push_count` > 1). The press payloads themselves were not captured: that a
+cloud copy of a press carries the inner time in ms is **[verified]** for detections
+(msg_type 18) only.
 
 **Several pushes per detection [app].** The eufy app treats the pushes of one session
 (`session_id`), or with one `event_time`, as one notification and lets the later one
