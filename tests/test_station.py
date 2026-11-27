@@ -1087,6 +1087,19 @@ def test_camera_power_manager_figures_come_from_the_block() -> None:
     )
 
 
+@pytest.mark.parametrize(("raw", "health"), [("94", 94), ("0", 0), ("250", None), ("x", None)])
+def test_param_1198_is_the_battery_health_whatever_the_model_data_says(
+    raw: str, health: int | None
+) -> None:
+    """Read off any block (the T8162's app data leaves it unread, the T8170's omits it)."""
+    camera = _state_of({0: {1198: raw}}).devices[0]
+    assert camera.battery_health == health
+
+
+def test_a_block_without_1198_has_no_battery_health() -> None:
+    assert _state_of({0: {1101: "50"}}).devices[0].battery_health is None
+
+
 @pytest.mark.parametrize(
     ("raw", "charging", "solar"),
     [

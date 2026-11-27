@@ -138,6 +138,7 @@ from ..models import (
     DEV_STATUS_ONLINE,
     NOT_CHARGING_SOURCES,
     PARAM_BATTERY,
+    PARAM_BATTERY_HEALTH,
     PARAM_BATTERY_TEMPERATURE,
     PARAM_DETECTED_EVENTS,
     PARAM_DEV_STATUS,
@@ -425,6 +426,10 @@ class SubDeviceState:
     device is online, plainly offline (0), or silent about it."""
     battery_temperature: int | None = None
     """Battery temperature (param 1138, °C by its range; the handlers give no unit)."""
+    battery_health: int | None = None
+    """Battery health in percent (param 1198), read off any block that reports it: the
+    app's data maps it for some models only (T8162 leaves it unread, T8170 omits it),
+    though their blocks carry it. None when absent or outside 0-100."""
     working_days: int | None = None
     """Days since the battery was last charged by USB (param 1191; the app's power
     manager "Working Days")."""
@@ -534,6 +539,7 @@ STATE_PARAMS: Final[Mapping[Scope, frozenset[int]]] = {
             PARAM_PIR_EVENT_MS,
             PARAM_FIRMWARE,
             PARAM_BATTERY_TEMPERATURE,
+            PARAM_BATTERY_HEALTH,
             PARAM_WORKING_DAYS,
             PARAM_DETECTED_EVENTS,
             PARAM_RECORDED_EVENTS,
@@ -1922,6 +1928,7 @@ class Station:
                 online=None if status is None else status == DEV_STATUS_ONLINE,
                 offline_code=status if status is not None and status > DEV_STATUS_ONLINE else None,
                 battery_temperature=_int_or_none(params.get(PARAM_BATTERY_TEMPERATURE)),
+                battery_health=_percent_or_none(params.get(PARAM_BATTERY_HEALTH)),
                 working_days=_count_or_none(params.get(PARAM_WORKING_DAYS)),
                 detected_events=_count_or_none(params.get(PARAM_DETECTED_EVENTS)),
                 recorded_events=_count_or_none(params.get(PARAM_RECORDED_EVENTS)),
