@@ -4,6 +4,13 @@ All notable changes to this project. The project follows
 [Semantic Versioning](https://semver.org/); before 1.0, a minor release may change the
 API. release-please writes the entries from the conventional commits.
 
+## [0.1.3](https://github.com/abz2much/anker-eufy-security/compare/v0.1.2...v0.1.3) (2026-11-27)
+
+
+### Features
+
+* **station:** read a device's battery health (param 1198) whatever its model data says ([#10](https://github.com/abz2much/anker-eufy-security/issues/10)) ([e3902e1](https://github.com/abz2much/anker-eufy-security/commit/e3902e18ba886564ba028972c29cbfb85af0c151))
+
 ## [0.1.2](https://github.com/abz2much/anker-eufy-security/compare/v0.1.1...v0.1.2) (2026-11-27)
 
 
