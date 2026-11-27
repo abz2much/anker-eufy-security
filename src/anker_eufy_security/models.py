@@ -159,6 +159,9 @@ PARAM_BATTERY_TEMPERATURE = 1138
 """Battery temperature; the handlers pass it through without a unit (°C by its range)."""
 PARAM_WORKING_DAYS = 1191
 """Days since the camera's battery was last charged by USB (the app's power manager)."""
+PARAM_BATTERY_HEALTH = 1198
+"""Battery health in percent: the app's power manager ``battery_healthy``. Seen live on
+T8160, T8162 and T8170 blocks, whatever each model's app data says."""
 PARAM_DETECTED_EVENTS = 1192
 PARAM_RECORDED_EVENTS = 1193
 PARAM_SOLAR_INTENSITY = 1309
