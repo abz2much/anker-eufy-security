@@ -31,7 +31,7 @@ from anker_eufy_security.cloud.api import (
     _SessionExpiredError,
 )
 from anker_eufy_security.cloud.const import KEY_REFRESH_SLOW_RETRY, CloudCode
-from anker_eufy_security.cloud.models import CloudDevice, CloudInvite
+from anker_eufy_security.cloud.models import CloudDevice, CloudInvite, FirmwareCheck, FirmwareUpdate
 from anker_eufy_security.cloud.status import DeviceListSource, LoginNeed
 from anker_eufy_security.devices.capabilities import Capability
 from anker_eufy_security.devices.locks import LockState, LockStateSource
@@ -2833,6 +2833,144 @@ async def test_firmware_updates_checks_hub_devices_under_the_kit_type() -> None:
         (SYNTHETIC.camera_sn, "T8030_Kit", "3.4.3.0"),
     ]
     assert [u.device_sn for u in updates] == [SYNTHETIC.camera_sn]
+
+
+SECOND_CAMERA_SN = "T8160P2000000002"
+
+
+class FirmwareChecksCloud(FirmwareCloud):
+    """The hub, its camera (offered 3.5.0.0) and a second camera whose check fails.
+
+    ``first_error`` replaces the first check's answer with that error.
+    """
+
+    first_error: EufySecurityError | None = None
+
+    async def async_get_devices(
+        self, *, refresh: bool = False, rescan_regions: bool = False
+    ) -> list[CloudDevice]:
+        devices = await super().async_get_devices(refresh=refresh, rescan_regions=rescan_regions)
+        second = CloudDevice(
+            device_sn=SECOND_CAMERA_SN,
+            device_type=19,
+            name="Cam 2",
+            station_sn=SYNTHETIC.station_sn,
+            channel=1,
+            main_sw_version="3.4.3.0",
+        )
+        return [*devices[:2], second, *devices[2:]]
+
+    async def async_check_firmware(
+        self,
+        device_sn: str,
+        *,
+        ota_type: str,
+        current_version_name: str,
+        rom_version: int = 0,
+    ) -> Any:
+        if self.first_error is not None and not self.checks:
+            self.checks.append((device_sn, ota_type, current_version_name))
+            raise self.first_error
+        if device_sn == SECOND_CAMERA_SN:
+            self.checks.append((device_sn, ota_type, current_version_name))
+            raise CloudApiError(500, "ota failed")
+        if device_sn == SYNTHETIC.camera_sn:
+            self.checks.append((device_sn, ota_type, current_version_name))
+            return FirmwareUpdate(
+                device_sn=device_sn, version_name="3.5.0.0", download_url="https://x/y.bin"
+            )
+        return await super().async_check_firmware(
+            device_sn, ota_type=ota_type, current_version_name=current_version_name
+        )
+
+
+async def _firmware_checks(cloud_cls: type[FirmwareCloud]) -> tuple[Any, FirmwareCloud]:
+    store = warm_store(email=SYNTHETIC.email, cloud=two_stations())
+    async with aiohttp.ClientSession() as http:
+        eufy = EufySecurity(
+            http, SYNTHETIC.email, "pw", store=store, _cloud_factory=cloud_factory(cloud_cls)
+        )
+        checks = await eufy.async_firmware_checks()
+        await eufy.async_close()
+    cloud = eufy.cloud
+    assert isinstance(cloud, FirmwareCloud)
+    return checks, cloud
+
+
+async def test_firmware_checks_answer_every_hub_device_and_isolate_errors() -> None:
+    checks, _ = await _firmware_checks(FirmwareChecksCloud)
+
+    hub_devices = [c for c in checks if c.asked_version is not None]
+    assert [(c.device_sn, c.outcome, c.asked_version) for c in hub_devices] == [
+        (SYNTHETIC.station_sn, "current", "3.8.7.4"),
+        (SYNTHETIC.camera_sn, "update", "3.4.3.0"),
+        (SECOND_CAMERA_SN, "error", "3.4.3.0"),
+    ]
+    assert hub_devices[1].update is not None
+    assert hub_devices[1].update.version_name == "3.5.0.0"
+    assert hub_devices[2].error == "CloudApiError"
+    # The standalone camera is no hub device: it is left out, as before.
+    assert all(c.device_sn != STANDALONE_SN for c in checks)
+
+
+async def test_a_hub_device_without_a_version_is_skipped_not_sent() -> None:
+    checks, cloud = await _firmware_checks(FirmwareChecksCloud)
+
+    quiet = [c for c in checks if c.asked_version is None]
+    assert [(c.device_sn, c.outcome) for c in quiet] == [("T8030P2000099999", "skipped")]
+    assert all(sn != "T8030P2000099999" for sn, _, _ in cloud.checks)
+
+
+async def test_a_throttle_stops_the_checks_and_skips_the_rest() -> None:
+    class Throttled(FirmwareChecksCloud):
+        first_error = RateLimitedError("throttled")
+
+    checks, cloud = await _firmware_checks(Throttled)
+
+    assert [c.outcome for c in checks] == ["error", "skipped", "skipped", "skipped"]
+    assert checks[0].error == "RateLimitedError"
+    assert len(cloud.checks) == 1
+
+
+def test_a_firmware_check_redacts_and_leaves_out_the_package() -> None:
+    check = FirmwareCheck(
+        device_sn=SYNTHETIC.camera_sn,
+        outcome="update",
+        asked_version="3.4.3.0",
+        update=FirmwareUpdate(
+            device_sn=SYNTHETIC.camera_sn,
+            version_name="3.5.0.0",
+            download_url="https://x/y.bin",
+            md5="ab",
+            notes="n",
+        ),
+    )
+
+    assert check.as_redacted_dict() == {
+        "device_sn": redact_serial(SYNTHETIC.camera_sn),
+        "outcome": "update",
+        "asked_version": "3.4.3.0",
+        "offered_version": "3.5.0.0",
+        "forced": False,
+        "error": None,
+    }
+    assert SYNTHETIC.camera_sn not in repr(check)
+
+
+async def test_firmware_updates_keep_their_answer_on_top_of_the_checks() -> None:
+    store = warm_store(email=SYNTHETIC.email, cloud=two_stations())
+    async with aiohttp.ClientSession() as http:
+        eufy = EufySecurity(
+            http,
+            SYNTHETIC.email,
+            "pw",
+            store=store,
+            _cloud_factory=cloud_factory(FirmwareChecksCloud),
+        )
+        updates = await eufy.async_firmware_updates()
+        await eufy.async_close()
+
+    assert [u.version_name for u in updates] == ["3.5.0.0"]
 
 
 async def test_stations_read_the_model_settings_after_discovery() -> None:

@@ -400,6 +400,12 @@ class FakeCloud:
     login_error: EufySecurityError | None = None
     call_errors: list[EufySecurityError] = field(default_factory=list)
     dsk_keys: dict[str, str] = field(default_factory=dict)
+    firmware_offers: dict[str, str] = field(default_factory=dict)
+    """The firmware version the OTA check (``get_rom_version``, recorded as
+    ``"ota:<serial>"``) offers each serial; a serial not here, nor in
+    ``firmware_errors``, is answered up to date (embedded code 20004)."""
+    firmware_errors: dict[str, int] = field(default_factory=dict)
+    """The embedded error code the OTA check answers each serial with."""
     things: dict[str, dict[str, Any]] = field(default_factory=dict)
     things_error: EufySecurityError | None = None
     things_errors: list[EufySecurityError] = field(default_factory=list)
@@ -645,6 +651,19 @@ class FakeCloud:
             self._raise_call_error()
             ids = [int(face_id) for face_id in payload["ai_face_ids"]]
             return [dict(self.faces[i]) for i in ids if i in self.faces] or None
+        if path == const.OTA_ROM_PATH:
+            serial = str(payload.get("device_sn"))
+            note(f"ota:{redact_serial(serial)}")
+            self._raise_call_error()
+            if serial in self.firmware_errors:
+                code = self.firmware_errors[serial]
+                return {"reason": f"error: code = {code} reason = refused"}
+            if serial in self.firmware_offers:
+                return {
+                    "rom_version_name": self.firmware_offers[serial],
+                    "full_package": {"file_path": f"https://ota.example/{serial[:5]}.bin"},
+                }
+            return {"reason": f"error: code = {const.OTA_NO_UPGRADE_CODE} reason = no upgrade"}
         if path in _ARMING_PATHS:
             tail = path.rsplit("/", 1)[-1]
             note(f"arming:{tail}")
