@@ -4,6 +4,13 @@ All notable changes to this project. The project follows
 [Semantic Versioning](https://semver.org/); before 1.0, a minor release may change the
 API. release-please writes the entries from the conventional commits.
 
+## [0.1.2](https://github.com/abz2much/anker-eufy-security/compare/v0.1.1...v0.1.2) (2026-11-27)
+
+
+### Features
+
+* **client:** check firmware per device, one device's error never stops the rest ([#8](https://github.com/abz2much/anker-eufy-security/issues/8)) ([eb1ee0a](https://github.com/abz2much/anker-eufy-security/commit/eb1ee0a4d661becaa75e17d88bfc7e918ee4c251))
+
 ## [0.1.1](https://github.com/abz2much/anker-eufy-security/compare/v0.1.0...v0.1.1) (2026-11-26)
 
 
