@@ -2957,20 +2957,33 @@ def test_a_firmware_check_redacts_and_leaves_out_the_package() -> None:
     assert SYNTHETIC.camera_sn not in repr(check)
 
 
-async def test_firmware_updates_keep_their_answer_on_top_of_the_checks() -> None:
+@pytest.mark.parametrize(
+    ("first_error", "raised"),
+    [
+        (None, CloudApiError),  # the second camera's own error
+        (RateLimitedError("throttled"), RateLimitedError),
+    ],
+)
+async def test_firmware_updates_still_raise_a_failed_check(
+    first_error: EufySecurityError | None, raised: type[EufySecurityError]
+) -> None:
+    """The documented contract: a failed check raises, so a consumer keeps its last
+    state instead of reading the empty list as "everything current"."""
+
+    class Cloud(FirmwareChecksCloud):
+        pass
+
+    Cloud.first_error = first_error
     store = warm_store(email=SYNTHETIC.email, cloud=two_stations())
     async with aiohttp.ClientSession() as http:
         eufy = EufySecurity(
-            http,
-            SYNTHETIC.email,
-            "pw",
-            store=store,
-            _cloud_factory=cloud_factory(FirmwareChecksCloud),
+            http, SYNTHETIC.email, "pw", store=store, _cloud_factory=cloud_factory(Cloud)
         )
-        updates = await eufy.async_firmware_updates()
-        await eufy.async_close()
-
-    assert [u.version_name for u in updates] == ["3.5.0.0"]
+        try:
+            with pytest.raises(raised):
+                await eufy.async_firmware_updates()
+        finally:
+            await eufy.async_close()
 
 
 async def test_stations_read_the_model_settings_after_discovery() -> None:

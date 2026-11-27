@@ -498,12 +498,13 @@ class EufySecurity:
     async def async_firmware_updates(self, *, refresh: bool = False) -> list[FirmwareUpdate]:
         """The firmware updates the cloud OTA offers, one per device that has one.
 
-        The offers among :meth:`async_firmware_checks`: an empty list when everything is
-        current (the usual case) or no check got an answer. It surfaces the download URL
-        and checksum the moment eufy publishes an update, for a Home Assistant ``update``
-        entity.
+        The offers among the checks of :meth:`async_firmware_checks`: an empty list when
+        everything is current (the usual case). A check that fails raises its error, so an
+        empty list always means every device answered; keep the entities' last state on
+        an error. It surfaces the download URL and checksum the moment eufy publishes an
+        update, for a Home Assistant ``update`` entity.
         """
-        checks = await self.async_firmware_checks(refresh=refresh)
+        checks = await self._async_firmware_checks(refresh=refresh, raise_errors=True)
         return [c.update for c in checks if c.outcome == "update" and c.update is not None]
 
     async def async_firmware_checks(self, *, refresh: bool = False) -> list[FirmwareCheck]:
@@ -520,6 +521,13 @@ class EufySecurity:
         One cloud call per device, on the account's shared throttle, so run it on a slow
         timer (eufy publishes firmware rarely) or on a user's request, never per start.
         """
+        return await self._async_firmware_checks(refresh=refresh, raise_errors=False)
+
+    async def _async_firmware_checks(
+        self, *, refresh: bool, raise_errors: bool
+    ) -> list[FirmwareCheck]:
+        """:meth:`async_firmware_checks`; ``raise_errors`` raises the first failed check's
+        error instead of recording it (the contract of :meth:`async_firmware_updates`)."""
         devices = await self.cloud.async_get_devices(refresh=refresh)
         hubs = frozenset(d.device_sn for d in devices if d.is_station and not d.is_standalone)
         checks: list[FirmwareCheck] = []
@@ -543,6 +551,8 @@ class EufySecurity:
                     current_version_name=version,
                 )
             except EufySecurityError as err:
+                if raise_errors:
+                    raise
                 stopped = isinstance(
                     err, (RateLimitedError, SessionReplacedError, AuthenticationError)
                 )
