@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 
+from anker_eufy_security._logging import redact_serial
 from anker_eufy_security.client import EufySecurity
 from anker_eufy_security.cloud import const
 from anker_eufy_security.cloud.status import LoginNeed
@@ -36,6 +37,8 @@ from anker_eufy_security.testing import (
     FakeCloud,
     FakeStation,
     build_eufy_security,
+    camera_device,
+    station_device,
     warm_store,
 )
 
@@ -161,6 +164,38 @@ async def _warm_cloud_client(cloud: FakeCloud) -> EufySecurity:
     await eufy.async_login()
     cloud.calls.clear()
     return eufy
+
+
+async def test_the_fake_cloud_answers_firmware_checks_per_device() -> None:
+    second = "T8160P2000000002"
+    cloud = FakeCloud(
+        devices=[
+            station_device(),
+            {**camera_device(), "main_sw_version": "3.4.3.0"},
+            {**camera_device(second, channel=1), "main_sw_version": "3.4.3.0"},
+        ],
+        firmware_offers={SYNTHETIC.camera_sn: "3.5.0.0"},
+        firmware_errors={second: 500},
+    )
+    eufy = await _warm_cloud_client(cloud)
+    try:
+        checks = await eufy.async_firmware_checks()
+    finally:
+        await eufy.async_close()
+
+    assert [(c.device_sn, c.outcome) for c in checks] == [
+        (SYNTHETIC.station_sn, "current"),
+        (SYNTHETIC.camera_sn, "update"),
+        (second, "error"),
+    ]
+    assert checks[1].update is not None
+    assert checks[1].update.version_name == "3.5.0.0"
+    assert checks[2].error == "CloudApiError"
+    assert cloud.calls == [
+        f"ota:{redact_serial(SYNTHETIC.station_sn)}",
+        f"ota:{redact_serial(SYNTHETIC.camera_sn)}",
+        f"ota:{redact_serial(second)}",
+    ]
 
 
 async def test_a_throttle_from_call_errors_holds_off_every_later_call() -> None:

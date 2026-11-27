@@ -26,7 +26,7 @@ from ._logging import Identifier, LogThrottle, Secret, redact_serial, register_s
 from .cloud import arming
 from .cloud.api import CipherKeys, EufyCloudApi, HttpSession, PasswordSource
 from .cloud.const import CLOUD_STATE_REFRESH, FACES_BY_IDS_PATH, firmware_ota_type
-from .cloud.models import CloudDevice, CloudInvite, FirmwareUpdate
+from .cloud.models import CloudDevice, CloudInvite, FirmwareCheck, FirmwareUpdate
 from .cloud.status import CloudStatus, DeviceListSource
 from .devices.model_settings import (
     Setting,
@@ -62,6 +62,7 @@ from .events import (
     pic_url_kind,
 )
 from .exceptions import (
+    AuthenticationError,
     CipherKeyMissingError,
     CipherUnavailableError,
     CloudError,
@@ -72,6 +73,7 @@ from .exceptions import (
     ModelDataError,
     NoCachedSessionError,
     ProtocolError,
+    RateLimitedError,
     SessionReplacedError,
     UnsupportedError,
     VideoEncryptedPictureError,
@@ -496,34 +498,82 @@ class EufySecurity:
     async def async_firmware_updates(self, *, refresh: bool = False) -> list[FirmwareUpdate]:
         """The firmware updates the cloud OTA offers, one per device that has one.
 
-        Checks every HomeBase-attached device (the hub and each paired camera) with its
-        own serial under the hub's firmware-kit type, and returns a
-        :class:`~.cloud.models.FirmwareUpdate` for each that a newer version is available
-        for — an empty list when everything is current (the usual case). A standalone
-        battery camera is skipped: its OTA kit type is not established. Uses the cached
-        device list unless ``refresh``.
-
-        This is one cloud call per device, on the account's shared throttle, so run it on
-        a slow timer (eufy publishes firmware rarely) rather than per start. It surfaces
-        the download URL and checksum the moment eufy publishes an update, for a Home
-        Assistant ``update`` entity.
+        The offers among the checks of :meth:`async_firmware_checks`: an empty list when
+        everything is current (the usual case). A check that fails raises its error, so an
+        empty list always means every device answered; keep the entities' last state on
+        an error. It surfaces the download URL and checksum the moment eufy publishes an
+        update, for a Home Assistant ``update`` entity.
         """
+        checks = await self._async_firmware_checks(refresh=refresh, raise_errors=True)
+        return [c.update for c in checks if c.outcome == "update" and c.update is not None]
+
+    async def async_firmware_checks(self, *, refresh: bool = False) -> list[FirmwareCheck]:
+        """One cloud OTA answer per HomeBase-attached device, in device-list order.
+
+        Checks every HomeBase-attached device (the hub and each paired camera) with its
+        own serial under the hub's firmware-kit type and its cloud record's version. A
+        standalone battery camera is left out: its OTA kit type is not established. A
+        device without a version is ``skipped``, never sent. One device's error is its
+        own ``error`` and the next is still asked, except after a throttle, a replaced
+        session or refused credentials: every later device is then ``skipped`` and
+        nothing more is sent. Uses the cached device list unless ``refresh``.
+
+        One cloud call per device, on the account's shared throttle, so run it on a slow
+        timer (eufy publishes firmware rarely) or on a user's request, never per start.
+        """
+        return await self._async_firmware_checks(refresh=refresh, raise_errors=False)
+
+    async def _async_firmware_checks(
+        self, *, refresh: bool, raise_errors: bool
+    ) -> list[FirmwareCheck]:
+        """:meth:`async_firmware_checks`; ``raise_errors`` raises the first failed check's
+        error instead of recording it (the contract of :meth:`async_firmware_updates`)."""
         devices = await self.cloud.async_get_devices(refresh=refresh)
         hubs = frozenset(d.device_sn for d in devices if d.is_station and not d.is_standalone)
-        updates: list[FirmwareUpdate] = []
+        checks: list[FirmwareCheck] = []
+        stopped = False
         for device in devices:
             hub = device.device_sn if device.is_station else device.station_sn
-            version = device.main_sw_version
-            if hub not in hubs or not version:
+            if hub not in hubs:
                 continue
-            update = await self.cloud.async_check_firmware(
-                device.device_sn,
-                ota_type=firmware_ota_type(hub),
-                current_version_name=version,
+            version = device.main_sw_version
+            if stopped or not version:
+                checks.append(
+                    FirmwareCheck(
+                        device_sn=device.device_sn, outcome="skipped", asked_version=version
+                    )
+                )
+                continue
+            try:
+                update = await self.cloud.async_check_firmware(
+                    device.device_sn,
+                    ota_type=firmware_ota_type(hub),
+                    current_version_name=version,
+                )
+            except EufySecurityError as err:
+                if raise_errors:
+                    raise
+                stopped = isinstance(
+                    err, (RateLimitedError, SessionReplacedError, AuthenticationError)
+                )
+                checks.append(
+                    FirmwareCheck(
+                        device_sn=device.device_sn,
+                        outcome="error",
+                        asked_version=version,
+                        error=type(err).__name__,
+                    )
+                )
+                continue
+            checks.append(
+                FirmwareCheck(
+                    device_sn=device.device_sn,
+                    outcome="current" if update is None else "update",
+                    asked_version=version,
+                    update=update,
+                )
             )
-            if update is not None:
-                updates.append(update)
-        return updates
+        return checks
 
     async def async_cache_summary(self) -> dict[str, Any]:
         """A JSON-safe, secret-free view of the cache and the cloud status, for diagnostics.

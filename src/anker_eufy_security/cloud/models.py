@@ -135,6 +135,47 @@ class FirmwareUpdate:
         )
 
 
+type FirmwareCheckOutcome = Literal["update", "current", "error", "skipped"]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, repr=False)
+class FirmwareCheck:
+    """One device's answer to the cloud OTA check (``get_rom_version``).
+
+    ``outcome``: ``"update"`` (``update`` holds the offer), ``"current"`` (the cloud
+    says ``asked_version`` is the newest), ``"error"`` (``error`` names the error type)
+    or ``"skipped"`` (not asked: no version to ask with, or an earlier answer stopped
+    the checks). ``asked_version`` is the cloud record's version the check was asked
+    with, which can lag the version the device runs.
+    """
+
+    device_sn: str
+    outcome: FirmwareCheckOutcome
+    asked_version: str | None
+    update: FirmwareUpdate | None = None
+    error: str | None = None
+
+    def __repr__(self) -> str:
+        """Serial redacted (a check lands in logs and HA diagnostics)."""
+        return (
+            f"FirmwareCheck(device_sn={redact_serial(self.device_sn)!r}, "
+            f"outcome={self.outcome!r}, asked_version={self.asked_version!r}, "
+            f"update={self.update!r}, error={self.error!r})"
+        )
+
+    def as_redacted_dict(self) -> dict[str, Any]:
+        """The check for diagnostics: the serial redacted, the package left out (no URL,
+        checksum, size or release notes)."""
+        return {
+            "device_sn": redact_serial(self.device_sn),
+            "outcome": self.outcome,
+            "asked_version": self.asked_version,
+            "offered_version": None if self.update is None else self.update.version_name,
+            "forced": None if self.update is None else self.update.forced,
+            "error": self.error,
+        }
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, repr=False)
 class CloudFace:
     """One face record of ``aiassis/get_faces_by_ids``: the cloud's crop of a face the

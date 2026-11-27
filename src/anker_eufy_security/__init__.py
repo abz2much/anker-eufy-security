@@ -27,7 +27,7 @@ if TYPE_CHECKING:
         ArmingMemberResult,
         ArmingOutcome,
     )
-    from .cloud.models import CloudDevice, CloudFace, CloudInvite, FirmwareUpdate
+    from .cloud.models import CloudDevice, CloudFace, CloudInvite, FirmwareCheck, FirmwareUpdate
     from .cloud.status import (
         CloudStatus,
         DeviceListSource,
@@ -250,7 +250,10 @@ _EXPORTS: dict[str, str] = {
         "cloud.arming",
     ),
     "AccountReport": "diagnostics",
-    **dict.fromkeys(("CloudDevice", "CloudFace", "CloudInvite", "FirmwareUpdate"), "cloud.models"),
+    **dict.fromkeys(
+        ("CloudDevice", "CloudFace", "CloudInvite", "FirmwareCheck", "FirmwareUpdate"),
+        "cloud.models",
+    ),
     **dict.fromkeys(
         (
             "CloudStatus",
@@ -566,6 +569,7 @@ __all__ = [
     "EventDeduplicator",
     "EventScope",
     "EventSource",
+    "FirmwareCheck",
     "FirmwareUpdate",
     "FrameCipher",
     "FrameStream",
